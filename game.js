@@ -1,8 +1,9 @@
 /* ============================================================
    NEON TAG — a laser-tag battle royale in the browser
-   Three.js for 3D, PeerJS (WebRTC) for peer-to-peer multiplayer.
+   Three.js for 3D, Firebase Realtime Database for multiplayer + chat.
    Host is authoritative for hearts / power cores / bots / timer.
    ============================================================ */
+import * as THREE from "three";
 
 /* ---------------- Persistent local data ---------------- */
 const SAVE_KEY = "neontag_save_v1";
@@ -23,7 +24,6 @@ function getDeviceId(){
   if(!id){ id = "d"+Math.random().toString(36).slice(2,12); localStorage.setItem("neontag_device_id", id); }
   return id;
 }
-let save = loadSave();
 
 const WORDS_A = ["Turbo","Neon","Cosmic","Rapid","Shadow","Blazing","Frosty","Rogue","Silent","Cyber","Solar","Lunar","Wild","Electric","Sneaky","Mighty","Jumpy","Glowing","Rocket","Pixel"];
 const WORDS_B = ["Fox","Falcon","Otter","Comet","Panda","Wolf","Tiger","Hawk","Ninja","Robot","Dragon","Phoenix","Shark","Yeti","Viper","Badger","Raccoon","Cheetah","Griffin","Koala"];
@@ -32,6 +32,8 @@ function randomName(){
   const r = a => a[Math.floor(Math.random()*a.length)];
   return `${r(WORDS_A)}${r(WORDS_B)}${r(WORDS_C)}`;
 }
+
+let save = loadSave();
 
 /* ---------------- DOM refs ---------------- */
 const $ = id => document.getElementById(id);
