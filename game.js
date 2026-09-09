@@ -1,38 +1,38 @@
 /* ============================================================
    NEON TAG — a laser-tag battle royale in the browser
-   Three.js for 3D, Firebase Realtime Database for multiplayer + chat.
+   Three.js for 3D, PeerJS (WebRTC) for peer-to-peer multiplayer.
    Host is authoritative for hearts / power cores / bots / timer.
    ============================================================ */
-import * as THREE from "three";
 
-/* ---------------- Persistent local data ---------------- */
-const SAVE_KEY = "neontag_save_v1";
-function loadSave(){
-  try{
-    const raw = localStorage.getItem(SAVE_KEY);
-    if(raw) return JSON.parse(raw);
-  }catch(e){}
-  return { name: randomName(), crowns:0, matches:0, tags:0, wins:0, history:[] };
-}
-function saveSave(){
-  localStorage.setItem(SAVE_KEY, JSON.stringify(save));
-  // best-effort cloud backup, so crowns/stats survive clearing browser data
-  fetch(`${FIREBASE_DB_URL}/players_backup/${getDeviceId()}.json`, {method:"PUT", body:JSON.stringify(save)}).catch(()=>{});
-}
-function getDeviceId(){
-  let id = localStorage.getItem("neontag_device_id");
-  if(!id){ id = "d"+Math.random().toString(36).slice(2,12); localStorage.setItem("neontag_device_id", id); }
-  return id;
-}
+import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.157.0/build/three.module.js";
 
-const WORDS_A = ["Turbo","Neon","Cosmic","Rapid","Shadow","Blazing","Frosty","Rogue","Silent","Cyber","Solar","Lunar","Wild","Electric","Sneaky","Mighty","Jumpy","Glowing","Rocket","Pixel"];
-const WORDS_B = ["Fox","Falcon","Otter","Comet","Panda","Wolf","Tiger","Hawk","Ninja","Robot","Dragon","Phoenix","Shark","Yeti","Viper","Badger","Raccoon","Cheetah","Griffin","Koala"];
-const WORDS_C = ["Blaster","Dash","Spark","Bolt","Glide","Storm","Flash","Zoom","Beam","Strike","Nova","Drift","Ranger","Pulse","Rush"];
-function randomName(){
-  const r = a => a[Math.floor(Math.random()*a.length)];
+const WORDS_A = ["Turbo", "Neon", "Cosmic", "Rapid", "Shadow", "Blazing", "Frosty", "Rogue", "Silent", "Cyber", "Solar", "Lunar", "Wild", "Electric", "Sneaky", "Mighty", "Jumpy", "Glowing", "Rocket", "Pixel"];
+const WORDS_B = ["Fox", "Falcon", "Otter", "Comet", "Panda", "Wolf", "Tiger", "Hawk", "Ninja", "Robot", "Dragon", "Phoenix", "Shark", "Yeti", "Viper", "Badger", "Raccoon", "Cheetah", "Griffin", "Koala"];
+const WORDS_C = ["Blaster", "Dash", "Spark", "Bolt", "Glide", "Storm", "Flash", "Zoom", "Beam", "Strike", "Nova", "Drift", "Ranger", "Pulse", "Rush"];
+function randomName() {
+  const r = a => a[Math.floor(Math.random() * a.length)];
   return `${r(WORDS_A)}${r(WORDS_B)}${r(WORDS_C)}`;
 }
 
+/* ---------------- Persistent local data ---------------- */
+const SAVE_KEY = "neontag_save_v1";
+function loadSave() {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) { }
+  return { name: randomName(), crowns: 0, matches: 0, tags: 0, wins: 0, history: [] };
+}
+function saveSave() {
+  localStorage.setItem(SAVE_KEY, JSON.stringify(save));
+  // best-effort cloud backup, so crowns/stats survive clearing browser data
+  fetch(`${FIREBASE_DB_URL}/players_backup/${getDeviceId()}.json`, { method: "PUT", body: JSON.stringify(save) }).catch(() => { });
+}
+function getDeviceId() {
+  let id = localStorage.getItem("neontag_device_id");
+  if (!id) { id = "d" + Math.random().toString(36).slice(2, 12); localStorage.setItem("neontag_device_id", id); }
+  return id;
+}
 let save = loadSave();
 
 /* ---------------- DOM refs ---------------- */
@@ -42,47 +42,47 @@ const instructionsScreen = $("instructions-screen"), progressScreen = $("progres
 
 /* ---------- menu wiring ---------- */
 $("player-name").value = save.name;
-$("player-name").addEventListener("change", e=>{ save.name = e.target.value.trim() || randomName(); saveSave(); });
-$("randomize-name").addEventListener("click", ()=>{ save.name = randomName(); $("player-name").value = save.name; saveSave(); });
+$("player-name").addEventListener("change", e => { save.name = e.target.value.trim() || randomName(); saveSave(); });
+$("randomize-name").addEventListener("click", () => { save.name = randomName(); $("player-name").value = save.name; saveSave(); });
 
-function refreshStatsStrip(){
+function refreshStatsStrip() {
   $("stat-crowns").textContent = save.crowns;
   $("stat-matches").textContent = save.matches;
   $("stat-tags").textContent = save.tags;
 }
 refreshStatsStrip();
 
-document.querySelectorAll(".tab-btn").forEach(btn=>{
-  btn.addEventListener("click", ()=>{
-    document.querySelectorAll(".tab-btn").forEach(b=>b.classList.remove("active"));
-    document.querySelectorAll(".tab-panel").forEach(p=>p.classList.add("hidden"));
+document.querySelectorAll(".tab-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll(".tab-panel").forEach(p => p.classList.add("hidden"));
     btn.classList.add("active");
-    $("tab-"+btn.dataset.tab).classList.remove("hidden");
+    $("tab-" + btn.dataset.tab).classList.remove("hidden");
   });
 });
 
-$("instructions-btn").addEventListener("click", ()=> instructionsScreen.classList.remove("hidden"));
-$("close-instructions").addEventListener("click", ()=> instructionsScreen.classList.add("hidden"));
+$("instructions-btn").addEventListener("click", () => instructionsScreen.classList.remove("hidden"));
+$("close-instructions").addEventListener("click", () => instructionsScreen.classList.add("hidden"));
 
-$("progress-btn").addEventListener("click", ()=>{
+$("progress-btn").addEventListener("click", () => {
   $("p-crowns").textContent = save.crowns;
   $("p-matches").textContent = save.matches;
   $("p-tags").textContent = save.tags;
-  const rate = save.matches ? Math.round(100*save.wins/save.matches) : 0;
-  $("p-winrate").textContent = rate+"%";
+  const rate = save.matches ? Math.round(100 * save.wins / save.matches) : 0;
+  $("p-winrate").textContent = rate + "%";
   const hist = $("p-history"); hist.innerHTML = "";
-  if(!save.history.length){ hist.innerHTML = '<div class="hint">No matches yet — go play!</div>'; }
-  save.history.slice().reverse().slice(0,20).forEach(h=>{
+  if (!save.history.length) { hist.innerHTML = '<div class="hint">No matches yet — go play!</div>'; }
+  save.history.slice().reverse().slice(0, 20).forEach(h => {
     const row = document.createElement("div");
     row.className = "history-row";
-    row.innerHTML = `<span class="${h.win?'win':''}">${h.win?'👑 ':''}${h.place ? '#'+h.place : ''} ${h.mode}</span><span>${h.date}</span>`;
+    row.innerHTML = `<span class="${h.win ? 'win' : ''}">${h.win ? '👑 ' : ''}${h.place ? '#' + h.place : ''} ${h.mode}</span><span>${h.date}</span>`;
     hist.appendChild(row);
   });
   progressScreen.classList.remove("hidden");
 });
-$("close-progress").addEventListener("click", ()=> progressScreen.classList.add("hidden"));
+$("close-progress").addEventListener("click", () => progressScreen.classList.add("hidden"));
 
-$("bot-count").addEventListener("input", e=> $("bot-count-val").textContent = e.target.value);
+$("bot-count").addEventListener("input", e => $("bot-count-val").textContent = e.target.value);
 
 /* ============================================================
    NETWORKING — Firebase Realtime Database, room-based, real-time.
@@ -97,123 +97,123 @@ $("bot-count").addEventListener("input", e=> $("bot-count-val").textContent = e.
 const FIREBASE_DB_URL = "https://lasertag-569fa-default-rtdb.firebaseio.com";
 
 const Firebase = {
-  put(path, data){ return fetch(`${FIREBASE_DB_URL}/${path}.json`, {method:"PUT", body:JSON.stringify(data)}).catch(()=>{}); },
-  patch(path, data){ return fetch(`${FIREBASE_DB_URL}/${path}.json`, {method:"PATCH", body:JSON.stringify(data)}).catch(()=>{}); },
-  post(path, data){ return fetch(`${FIREBASE_DB_URL}/${path}.json`, {method:"POST", body:JSON.stringify(data)}).then(r=>r.json()).catch(()=>{}); },
-  get(path){ return fetch(`${FIREBASE_DB_URL}/${path}.json`).then(r=>r.json()).catch(()=>null); },
-  remove(path){ return fetch(`${FIREBASE_DB_URL}/${path}.json`, {method:"DELETE"}).catch(()=>{}); },
-  listen(path, onEvent){
+  put(path, data) { return fetch(`${FIREBASE_DB_URL}/${path}.json`, { method: "PUT", body: JSON.stringify(data) }).catch(() => { }); },
+  patch(path, data) { return fetch(`${FIREBASE_DB_URL}/${path}.json`, { method: "PATCH", body: JSON.stringify(data) }).catch(() => { }); },
+  post(path, data) { return fetch(`${FIREBASE_DB_URL}/${path}.json`, { method: "POST", body: JSON.stringify(data) }).then(r => r.json()).catch(() => { }); },
+  get(path) { return fetch(`${FIREBASE_DB_URL}/${path}.json`).then(r => r.json()).catch(() => null); },
+  remove(path) { return fetch(`${FIREBASE_DB_URL}/${path}.json`, { method: "DELETE" }).catch(() => { }); },
+  listen(path, onEvent) {
     const es = new EventSource(`${FIREBASE_DB_URL}/${path}.json`);
-    const handle = type => e=>{
-      try{ const {path, data} = JSON.parse(e.data); onEvent(type, path, data); }catch(err){}
+    const handle = type => e => {
+      try { const { path, data } = JSON.parse(e.data); onEvent(type, path, data); } catch (err) { }
     };
     es.addEventListener("put", handle("put"));
     es.addEventListener("patch", handle("patch"));
-    es.onerror = ()=>{}; // EventSource auto-reconnects; ignore transient errors
+    es.onerror = () => { }; // EventSource auto-reconnects; ignore transient errors
     return es;
   }
 };
 
 const Net = {
-  isHost:false, myId:null, roomCode:null, sessionStart:0,
-  playersEs:null, eventsEs:null, knownPlayerIds:null,
-  onMessage:null, // callback(fromId, data)
-  onPeerJoin:null, onPeerLeave:null,
+  isHost: false, myId: null, roomCode: null, sessionStart: 0,
+  playersEs: null, eventsEs: null, knownPlayerIds: null,
+  onMessage: null, // callback(fromId, data)
+  onPeerJoin: null, onPeerLeave: null,
 
-  initHost(cb){
+  initHost(cb) {
     this.isHost = true;
-    this.myId = "p"+Math.random().toString(36).slice(2,10);
+    this.myId = "p" + Math.random().toString(36).slice(2, 10);
     this.roomCode = genRoomCode();
     this.sessionStart = Date.now();
     this.knownPlayerIds = new Set();
-    Firebase.put(`rooms/${this.roomCode}/meta`, {hostId:this.myId, createdAt:this.sessionStart, started:false})
-      .then(()=>{ this._startListening(); cb(this.roomCode); });
+    Firebase.put(`rooms/${this.roomCode}/meta`, { hostId: this.myId, createdAt: this.sessionStart, started: false })
+      .then(() => { this._startListening(); cb(this.roomCode); });
   },
 
-  initClient(roomCode, myName, cb, errCb){
+  initClient(roomCode, myName, cb, errCb) {
     this.isHost = false;
-    this.myId = "p"+Math.random().toString(36).slice(2,10);
+    this.myId = "p" + Math.random().toString(36).slice(2, 10);
     this.roomCode = roomCode;
     this.sessionStart = Date.now();
     this.knownPlayerIds = new Set();
-    Firebase.get(`rooms/${roomCode}/meta`).then(meta=>{
-      if(!meta){ errCb && errCb(new Error("Room not found")); return; }
+    Firebase.get(`rooms/${roomCode}/meta`).then(meta => {
+      if (!meta) { errCb && errCb(new Error("Room not found")); return; }
       this._startListening();
       // lobby presence write so the host sees this player in the room list
-      Firebase.put(`rooms/${roomCode}/players/${this.myId}`, {name:myName, x:0,y:1.6,z:0,ry:0,hp:6,alive:true,hasMega:false})
-        .then(()=> cb(this.myId));
-    }).catch(e=> errCb && errCb(e));
+      Firebase.put(`rooms/${roomCode}/players/${this.myId}`, { name: myName, x: 0, y: 1.6, z: 0, ry: 0, hp: 6, alive: true, hasMega: false })
+        .then(() => cb(this.myId));
+    }).catch(e => errCb && errCb(e));
   },
 
-  _startListening(){
+  _startListening() {
     const room = this.roomCode;
-    this.playersEs = Firebase.listen(`rooms/${room}/players`, (type, path, data)=>{
-      if(path === "/"){
-        if(!data) return;
-        for(const id in data){
-          if(id===this.myId) continue;
+    this.playersEs = Firebase.listen(`rooms/${room}/players`, (type, path, data) => {
+      if (path === "/") {
+        if (!data) return;
+        for (const id in data) {
+          if (id === this.myId) continue;
           const isNew = !this.knownPlayerIds.has(id);
           this.knownPlayerIds.add(id);
-          if(isNew && this.onPeerJoin) this.onPeerJoin(id, data[id].name);
-          if(this.onMessage) this.onMessage(id, {t:"state", ...data[id]});
+          if (isNew && this.onPeerJoin) this.onPeerJoin(id, data[id].name);
+          if (this.onMessage) this.onMessage(id, { t: "state", ...data[id] });
         }
       } else {
         const id = path.slice(1);
-        if(id===this.myId) return;
-        if(data===null){
-          if(this.knownPlayerIds.has(id)){ this.knownPlayerIds.delete(id); if(this.onPeerLeave) this.onPeerLeave(id); }
+        if (id === this.myId) return;
+        if (data === null) {
+          if (this.knownPlayerIds.has(id)) { this.knownPlayerIds.delete(id); if (this.onPeerLeave) this.onPeerLeave(id); }
           return;
         }
         const isNew = !this.knownPlayerIds.has(id);
         this.knownPlayerIds.add(id);
-        if(isNew && this.onPeerJoin) this.onPeerJoin(id, data.name);
-        if(this.onMessage) this.onMessage(id, {t:"state", ...data});
+        if (isNew && this.onPeerJoin) this.onPeerJoin(id, data.name);
+        if (this.onMessage) this.onMessage(id, { t: "state", ...data });
       }
     });
-    this.eventsEs = Firebase.listen(`rooms/${room}/events`, (type, path, data)=>{
-      if(path === "/"){
-        if(!data) return;
-        Object.values(data).forEach(ev=> this._handleEvent(ev));
+    this.eventsEs = Firebase.listen(`rooms/${room}/events`, (type, path, data) => {
+      if (path === "/") {
+        if (!data) return;
+        Object.values(data).forEach(ev => this._handleEvent(ev));
       } else {
-        if(data) this._handleEvent(data);
+        if (data) this._handleEvent(data);
       }
     });
   },
-  _handleEvent(ev){
-    if(!ev || ev._from===this.myId) return;
-    if(ev._to && ev._to!==this.myId) return;
-    if(this.onMessage) this.onMessage(ev._from, ev);
+  _handleEvent(ev) {
+    if (!ev || ev._from === this.myId) return;
+    if (ev._to && ev._to !== this.myId) return;
+    if (this.onMessage) this.onMessage(ev._from, ev);
   },
 
   // "state"/"botstate" go to the live players map (overwritten, not appended).
   // Everything else is a one-off event appended to the events feed.
-  broadcast(data){
-    if(!this.roomCode) return;
-    if(data.t==="state"){
+  broadcast(data) {
+    if (!this.roomCode) return;
+    if (data.t === "state") {
       Firebase.put(`rooms/${this.roomCode}/players/${this.myId}`, data);
-    } else if(data.t==="botstate"){
+    } else if (data.t === "botstate") {
       Firebase.put(`rooms/${this.roomCode}/players/${data.id}`, data);
     } else {
-      Firebase.post(`rooms/${this.roomCode}/events`, {...data, _from:this.myId, _ts:Date.now()});
+      Firebase.post(`rooms/${this.roomCode}/events`, { ...data, _from: this.myId, _ts: Date.now() });
     }
   },
-  sendTo(id, data){
-    if(!this.roomCode) return;
-    Firebase.post(`rooms/${this.roomCode}/events`, {...data, _from:this.myId, _to:id, _ts:Date.now()});
+  sendTo(id, data) {
+    if (!this.roomCode) return;
+    Firebase.post(`rooms/${this.roomCode}/events`, { ...data, _from: this.myId, _to: id, _ts: Date.now() });
   },
 
-  leaveRoom(){
-    if(this.playersEs){ this.playersEs.close(); this.playersEs=null; }
-    if(this.eventsEs){ this.eventsEs.close(); this.eventsEs=null; }
-    if(this.roomCode && this.myId) Firebase.remove(`rooms/${this.roomCode}/players/${this.myId}`);
-    if(this.isHost && this.roomCode) Firebase.remove(`rooms/${this.roomCode}`);
+  leaveRoom() {
+    if (this.playersEs) { this.playersEs.close(); this.playersEs = null; }
+    if (this.eventsEs) { this.eventsEs.close(); this.eventsEs = null; }
+    if (this.roomCode && this.myId) Firebase.remove(`rooms/${this.roomCode}/players/${this.myId}`);
+    if (this.isHost && this.roomCode) Firebase.remove(`rooms/${this.roomCode}`);
     this.roomCode = null; this.isHost = false;
   }
 };
-function genRoomCode(){
+function genRoomCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let s = "";
-  for(let i=0;i<5;i++) s += chars[Math.floor(Math.random()*chars.length)];
+  for (let i = 0; i < 5; i++) s += chars[Math.floor(Math.random() * chars.length)];
   return s;
 }
 
@@ -223,49 +223,56 @@ function genRoomCode(){
 let three = {}; // scene, camera, renderer
 let game = null; // active Game instance
 
-class RemotePlayer{
-  constructor(id,name){
-    this.id=id; this.name=name; this.hp=6; this.alive=true; this.hasMega=false;
-    this.x=0;this.y=1.6;this.z=0;this.ry=0;
+class RemotePlayer {
+  constructor(id, name) {
+    this.id = id; this.name = name; this.hp = 6; this.alive = true; this.hasMega = false; this.score = 0;
+    this.x = 0; this.y = 1.6; this.z = 0; this.ry = 0;
     this.mesh = makePlayerMesh(name);
   }
-  applyState(s){
-    this.x=s.x; this.y=s.y; this.z=s.z; this.ry=s.ry; this.hp=s.hp; this.alive=s.alive; this.hasMega=s.hasMega;
-    this.mesh.position.set(this.x, this.y-0.9, this.z);
+  applyState(s) {
+    this.x = s.x; this.y = s.y; this.z = s.z; this.ry = s.ry; this.hp = s.hp; this.alive = s.alive; this.hasMega = s.hasMega; this.score = s.score || 0;
+    this.mesh.position.set(this.x, this.y - 0.9, this.z);
     this.mesh.rotation.y = this.ry;
     this.mesh.visible = this.alive;
     const bar = this.mesh.userData.hpFill;
-    if(bar) bar.scale.x = Math.max(0.001, this.hp/10);
+    if (bar) bar.scale.x = Math.max(0.001, this.hp / 10);
   }
 }
 
-function makePlayerMesh(name){
+function makePlayerMesh(name) {
   const group = new THREE.Group();
-  const bodyColor = new THREE.Color().setHSL(Math.random(),0.7,0.55);
+  const bodyColor = new THREE.Color().setHSL(Math.random(), 0.7, 0.55);
   const body = new THREE.Mesh(
-    new THREE.CapsuleGeometry(0.35, 0.9, 4, 8),
-    new THREE.MeshStandardMaterial({color:bodyColor, emissive:bodyColor, emissiveIntensity:0.3})
+    new THREE.CapsuleGeometry(0.35, 0.78, 5, 10),
+    new THREE.MeshStandardMaterial({ color: bodyColor, emissive: bodyColor, emissiveIntensity: 0.22, roughness: 0.35, metalness: 0.25 })
   );
   body.position.y = 0.9;
   group.add(body);
+  const armor = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.48, 0.34), new THREE.MeshStandardMaterial({ color: 0x152333, emissive: bodyColor, emissiveIntensity: 0.18, metalness: 0.55, roughness: 0.3 }));
+  armor.position.set(0, 1.02, 0.08); group.add(armor);
+  const visor = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.13, 0.31), new THREE.MeshBasicMaterial({ color: 0x43f6e4 }));
+  visor.position.set(0, 1.47, -0.17); group.add(visor);
+  const shoulderGeo = new THREE.SphereGeometry(0.16, 8, 6);
+  const shoulderMat = new THREE.MeshStandardMaterial({ color: 0x203446, emissive: bodyColor, emissiveIntensity: 0.3 });
+  [-1, 1].forEach(side => { const shoulder = new THREE.Mesh(shoulderGeo, shoulderMat); shoulder.position.set(side * 0.39, 1.08, 0); group.add(shoulder); });
 
   // name tag via sprite
   const canvas = document.createElement("canvas");
-  canvas.width=256; canvas.height=64;
+  canvas.width = 256; canvas.height = 64;
   const ctx = canvas.getContext("2d");
-  ctx.fillStyle="rgba(8,10,20,0.6)"; ctx.fillRect(0,0,256,64);
-  ctx.font="bold 34px Rajdhani, sans-serif"; ctx.fillStyle="#00f0ff"; ctx.textAlign="center";
-  ctx.fillText(name.slice(0,16), 128, 42);
+  ctx.fillStyle = "rgba(8,10,20,0.6)"; ctx.fillRect(0, 0, 256, 64);
+  ctx.font = "bold 34px Rajdhani, sans-serif"; ctx.fillStyle = "#00f0ff"; ctx.textAlign = "center";
+  ctx.fillText(name.slice(0, 16), 128, 42);
   const tex = new THREE.CanvasTexture(canvas);
-  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({map:tex, depthTest:false}));
-  sprite.scale.set(2,0.5,1);
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false }));
+  sprite.scale.set(2, 0.5, 1);
   sprite.position.y = 2.15;
   group.add(sprite);
 
   // hp bar above head
-  const barBg = new THREE.Mesh(new THREE.PlaneGeometry(1,0.08), new THREE.MeshBasicMaterial({color:0x222233}));
+  const barBg = new THREE.Mesh(new THREE.PlaneGeometry(1, 0.08), new THREE.MeshBasicMaterial({ color: 0x222233 }));
   barBg.position.y = 1.85; group.add(barBg);
-  const barFill = new THREE.Mesh(new THREE.PlaneGeometry(1,0.08), new THREE.MeshBasicMaterial({color:0xff2e88}));
+  const barFill = new THREE.Mesh(new THREE.PlaneGeometry(1, 0.08), new THREE.MeshBasicMaterial({ color: 0xff2e88 }));
   barFill.position.y = 1.85; barFill.position.z = 0.001; group.add(barFill);
   group.userData.hpFill = barFill;
 
@@ -275,59 +282,59 @@ function makePlayerMesh(name){
 /* ============================================================
    ARENA GENERATION
    ============================================================ */
-function generateArena(seed){
+function generateArena(seed) {
   const rand = mulberry32(seed);
   const size = 40; // half-extent
   const cell = 4;
-  const cells = Math.floor((size*2)/cell);
-  const layout = { walls:[], hearts:[], cores:[], ramps:[], bunkers:[], size };
+  const cells = Math.floor((size * 2) / cell);
+  const layout = { walls: [], hearts: [], cores: [], ramps: [], bunkers: [], size };
 
-  for(let ix=0; ix<cells; ix++){
-    for(let iz=0; iz<cells; iz++){
-      const x = -size + ix*cell + cell/2;
-      const z = -size + iz*cell + cell/2;
-      const distCenter = Math.hypot(x,z);
-      if(distCenter < 7) continue; // keep spawn-ish center clearer
-      if(rand() < 0.22){
-        const h = 2 + rand()*3;
-        const w = cell*(0.5+rand()*0.4);
-        layout.walls.push({x,z,w,h,d:w, ry: rand()<0.3 ? Math.PI/4 : 0});
+  for (let ix = 0; ix < cells; ix++) {
+    for (let iz = 0; iz < cells; iz++) {
+      const x = -size + ix * cell + cell / 2;
+      const z = -size + iz * cell + cell / 2;
+      const distCenter = Math.hypot(x, z);
+      if (distCenter < 7) continue; // keep spawn-ish center clearer
+      if (rand() < 0.22) {
+        const h = 2 + rand() * 3;
+        const w = cell * (0.5 + rand() * 0.4);
+        layout.walls.push({ x, z, w, h, d: w, ry: rand() < 0.3 ? Math.PI / 4 : 0 });
       }
     }
   }
   // border walls
   const b = size;
-  layout.walls.push({x:0,z:-b,w:b*2,h:6,d:1,ry:0});
-  layout.walls.push({x:0,z:b,w:b*2,h:6,d:1,ry:0});
-  layout.walls.push({x:-b,z:0,w:1,h:6,d:b*2,ry:0});
-  layout.walls.push({x:b,z:0,w:1,h:6,d:b*2,ry:0});
+  layout.walls.push({ x: 0, z: -b, w: b * 2, h: 6, d: 1, ry: 0 });
+  layout.walls.push({ x: 0, z: b, w: b * 2, h: 6, d: 1, ry: 0 });
+  layout.walls.push({ x: -b, z: 0, w: 1, h: 6, d: b * 2, ry: 0 });
+  layout.walls.push({ x: b, z: 0, w: 1, h: 6, d: b * 2, ry: 0 });
 
   // ramps (blue, angled boxes leaning against tall walls)
-  for(let i=0;i<6;i++){
-    const ang = (i/6)*Math.PI*2;
-    const r = 20+rand()*10;
-    layout.ramps.push({x:Math.cos(ang)*r, z:Math.sin(ang)*r, ry:ang+Math.PI/2});
+  for (let i = 0; i < 6; i++) {
+    const ang = (i / 6) * Math.PI * 2;
+    const r = 20 + rand() * 10;
+    layout.ramps.push({ x: Math.cos(ang) * r, z: Math.sin(ang) * r, ry: ang + Math.PI / 2 });
   }
 
   // bunkers (3-sided cover)
-  for(let i=0;i<8;i++){
-    layout.bunkers.push({x:(rand()-0.5)*size*1.6, z:(rand()-0.5)*size*1.6, ry:rand()*Math.PI*2});
+  for (let i = 0; i < 8; i++) {
+    layout.bunkers.push({ x: (rand() - 0.5) * size * 1.6, z: (rand() - 0.5) * size * 1.6, ry: rand() * Math.PI * 2 });
   }
 
   // hearts
-  for(let i=0;i<14;i++){
-    layout.hearts.push({id:"h"+i, x:(rand()-0.5)*size*1.7, z:(rand()-0.5)*size*1.7, active:true});
+  for (let i = 0; i < 14; i++) {
+    layout.hearts.push({ id: "h" + i, x: (rand() - 0.5) * size * 1.7, z: (rand() - 0.5) * size * 1.7, active: true });
   }
   // power cores
-  for(let i=0;i<6;i++){
-    const ang=(i/6)*Math.PI*2;
-    const r = 12+rand()*14;
-    layout.cores.push({id:"c"+i, x:Math.cos(ang)*r, z:Math.sin(ang)*r, active:true});
+  for (let i = 0; i < 6; i++) {
+    const ang = (i / 6) * Math.PI * 2;
+    const r = 12 + rand() * 14;
+    layout.cores.push({ id: "c" + i, x: Math.cos(ang) * r, z: Math.sin(ang) * r, active: true });
   }
   return layout;
 }
-function mulberry32(a){
-  return function(){
+function mulberry32(a) {
+  return function () {
     a |= 0; a = a + 0x6D2B79F5 | 0;
     let t = Math.imul(a ^ a >>> 15, 1 | a);
     t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
@@ -338,13 +345,15 @@ function mulberry32(a){
 /* ============================================================
    MAIN GAME CLASS
    ============================================================ */
-class Game{
-  constructor(opts){
+class Game {
+  constructor(opts) {
     this.mode = opts.mode; // "solo" | "host" | "client"
+    this.gameMode = opts.gameMode || "battle"; // "score" | "battle"
+    this.modeLabel = this.gameMode === "score" ? "KILL RUN" : "BATTLE ROYALE";
     this.myName = save.name;
     this.myId = opts.myId || "local";
     this.botCount = opts.botCount || 0;
-    this.seed = opts.seed || Math.floor(Math.random()*1e9);
+    this.seed = opts.seed || Math.floor(Math.random() * 1e9);
     this.layout = generateArena(this.seed);
     this.matchLen = 150; // 2:30
     this.timeLeft = this.matchLen;
@@ -353,59 +362,64 @@ class Game{
     this.remotePlayers = {}; // id -> RemotePlayer (includes bots on non-host? no: only host simulates bots)
     this.bots = {}; // id -> bot state, host only
     this.hearts = {}; this.cores = {};
-    this.zoneRadius = this.layout.size*1.6;
+    this.zoneRadius = this.layout.size * 1.6;
     this.killfeedEl = $("killfeed");
     this.lastSyncSent = 0;
+    this.lastTimerSent = 0;
+    this.lastAliveCount = -1;
+    this.lastScore = -1;
+    this.score = 0;
+    this.deaths = 0;
     this.activeCore = null; // {id, progress, deadline}
     this.setupScene();
     this.setupLocalPlayer();
     this.setupControls();
     this.setupPickupsAndCores();
 
-    if(this.mode==="host") this.spawnBots(this.botCount);
-    if(this.mode==="solo") this.spawnBots(this.botCount);
+    if (this.mode === "host") this.spawnBots(this.botCount);
+    if (this.mode === "solo") this.spawnBots(this.botCount);
 
-    Net.onMessage = (from, data)=> this.handleNetMessage(from, data);
-    Net.onPeerLeave = (id)=> this.removeRemote(id);
+    Net.onMessage = (from, data) => this.handleNetMessage(from, data);
+    Net.onPeerLeave = (id) => this.removeRemote(id);
 
     this.animate = this.animate.bind(this);
     requestAnimationFrame(this.animate);
   }
 
   /* ---------------- scene ---------------- */
-  setupScene(){
+  setupScene() {
     const canvas = $("game-canvas");
-    const renderer = new THREE.WebGLRenderer({canvas, antialias:true});
-    renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: devicePixelRatio < 1.5 });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
     renderer.setSize(innerWidth, innerHeight);
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x05060d);
     scene.fog = new THREE.FogExp2(0x05060d, 0.012);
-    const camera = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 500);
-    three = {renderer, scene, camera};
+    const camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.1, 500);
+    three = { renderer, scene, camera };
 
     scene.add(new THREE.HemisphereLight(0x8899ff, 0x0a0a12, 0.7));
     const dl = new THREE.DirectionalLight(0x9fd8ff, 0.5);
-    dl.position.set(30,50,10); scene.add(dl);
+    dl.position.set(30, 50, 10); scene.add(dl);
 
     // floor
-    const floorMat = new THREE.MeshStandardMaterial({color:0x0d1226, roughness:0.9});
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(this.layout.size*2.4, this.layout.size*2.4), floorMat);
-    floor.rotation.x = -Math.PI/2;
+    const floorMat = new THREE.MeshStandardMaterial({ color: 0x0d1226, roughness: 0.9 });
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(this.layout.size * 2.4, this.layout.size * 2.4), floorMat);
+    floor.rotation.x = -Math.PI / 2;
     scene.add(floor);
     // grid glow lines
-    const grid = new THREE.GridHelper(this.layout.size*2.4, 48, 0x00f0ff, 0x1a2440);
+    const grid = new THREE.GridHelper(this.layout.size * 2.4, 48, 0x00f0ff, 0x1a2440);
     grid.material.opacity = 0.35; grid.material.transparent = true;
     scene.add(grid);
 
     // walls
     this.wallMeshes = [];
-    const wallMat = new THREE.MeshStandardMaterial({color:0x1c2444, emissive:0x2a1650, emissiveIntensity:0.4, roughness:0.6});
-    const edgeMat = new THREE.LineBasicMaterial({color:0x00f0ff});
-    this.layout.walls.forEach(w=>{
+    const wallMat = new THREE.MeshStandardMaterial({ color: 0x1c2444, emissive: 0x2a1650, emissiveIntensity: 0.4, roughness: 0.6 });
+    const edgeMat = new THREE.LineBasicMaterial({ color: 0x00f0ff });
+    this.layout.walls.forEach(w => {
       const geo = new THREE.BoxGeometry(w.w, w.h, w.d);
       const mesh = new THREE.Mesh(geo, wallMat);
-      mesh.position.set(w.x, w.h/2, w.z);
+      mesh.position.set(w.x, w.h / 2, w.z);
       mesh.rotation.y = w.ry;
       scene.add(mesh);
       const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), edgeMat);
@@ -415,81 +429,91 @@ class Game{
     });
 
     // ramps
-    const rampMat = new THREE.MeshStandardMaterial({color:0x123a6b, emissive:0x1560c9, emissiveIntensity:0.5});
-    this.layout.ramps.forEach(r=>{
-      const mesh = new THREE.Mesh(new THREE.BoxGeometry(4,0.6,6), rampMat);
+    const rampMat = new THREE.MeshStandardMaterial({ color: 0x123a6b, emissive: 0x1560c9, emissiveIntensity: 0.5 });
+    this.layout.ramps.forEach(r => {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(4, 0.6, 6), rampMat);
       mesh.position.set(r.x, 1.4, r.z);
       mesh.rotation.set(0.5, r.ry, 0);
       scene.add(mesh);
+      this.wallMeshes.push(mesh);
     });
 
     // bunkers (3 walls, no roof)
-    const bunkerMat = new THREE.MeshStandardMaterial({color:0x2a1440, emissive:0x6b1fa0, emissiveIntensity:0.35});
-    this.layout.bunkers.forEach(bk=>{
+    const bunkerMat = new THREE.MeshStandardMaterial({ color: 0x2a1440, emissive: 0x6b1fa0, emissiveIntensity: 0.35 });
+    this.layout.bunkers.forEach(bk => {
       const grp = new THREE.Group();
       grp.position.set(bk.x, 0, bk.z); grp.rotation.y = bk.ry;
-      const side = new THREE.BoxGeometry(0.3,2,3);
-      const back = new THREE.BoxGeometry(3,2,0.3);
-      const l = new THREE.Mesh(side, bunkerMat); l.position.set(-1.5,1,0); grp.add(l);
-      const r = new THREE.Mesh(side, bunkerMat); r.position.set(1.5,1,0); grp.add(r);
-      const bWall = new THREE.Mesh(back, bunkerMat); bWall.position.set(0,1,-1.5); grp.add(bWall);
+      const side = new THREE.BoxGeometry(0.3, 2, 3);
+      const back = new THREE.BoxGeometry(3, 2, 0.3);
+      const l = new THREE.Mesh(side, bunkerMat); l.position.set(-1.5, 1, 0); grp.add(l);
+      const r = new THREE.Mesh(side, bunkerMat); r.position.set(1.5, 1, 0); grp.add(r);
+      const bWall = new THREE.Mesh(back, bunkerMat); bWall.position.set(0, 1, -1.5); grp.add(bWall);
       scene.add(grp);
-      this.wallMeshes.push(l); l.position.set(bk.x-1.5*Math.cos(bk.ry), 1, bk.z-1.5*-Math.sin(bk.ry));
+      this.wallMeshes.push(l, r, bWall);
     });
 
     // shrinking zone wall (visual ring)
-    const zoneGeo = new THREE.RingGeometry(this.zoneRadius-0.3, this.zoneRadius, 64);
-    const zoneMat = new THREE.MeshBasicMaterial({color:0xff2e88, side:THREE.DoubleSide, transparent:true, opacity:0.6});
+    const zoneGeo = new THREE.RingGeometry(0.97, 1, 64);
+    const zoneMat = new THREE.MeshBasicMaterial({ color: 0xff2e88, side: THREE.DoubleSide, transparent: true, opacity: 0.6 });
     this.zoneRing = new THREE.Mesh(zoneGeo, zoneMat);
-    this.zoneRing.rotation.x = -Math.PI/2; this.zoneRing.position.y = 0.05;
+    this.zoneRing.rotation.x = -Math.PI / 2; this.zoneRing.position.y = 0.05;
+    this.zoneRing.scale.setScalar(this.zoneRadius);
+    this.zoneRing.visible = this.gameMode === "battle";
     scene.add(this.zoneRing);
 
-    addEventListener("resize", ()=>{
-      three.camera.aspect = innerWidth/innerHeight; three.camera.updateProjectionMatrix();
+    this.resizeHandler = () => {
+      three.camera.aspect = innerWidth / innerHeight; three.camera.updateProjectionMatrix();
       three.renderer.setSize(innerWidth, innerHeight);
-    });
+    };
+    addEventListener("resize", this.resizeHandler);
   }
 
-  setupPickupsAndCores(){
-    const heartGeo = new THREE.SphereGeometry(0.35,12,12);
-    const heartMat = new THREE.MeshStandardMaterial({color:0xff3b5c, emissive:0xff3b5c, emissiveIntensity:1});
-    this.layout.hearts.forEach(h=>{
+  setupPickupsAndCores() {
+    const heartGeo = new THREE.SphereGeometry(0.35, 12, 12);
+    const heartMat = new THREE.MeshStandardMaterial({ color: 0xff3b5c, emissive: 0xff3b5c, emissiveIntensity: 1 });
+    this.layout.hearts.forEach(h => {
       const mesh = new THREE.Mesh(heartGeo, heartMat);
       mesh.position.set(h.x, 1, h.z);
       three.scene.add(mesh);
-      this.hearts[h.id] = {mesh, active:true, x:h.x, z:h.z};
+      this.hearts[h.id] = { mesh, active: true, x: h.x, z: h.z };
     });
-    const coreGeo = new THREE.OctahedronGeometry(0.6,0);
-    const coreMat = new THREE.MeshStandardMaterial({color:0x7b2ff7, emissive:0x7b2ff7, emissiveIntensity:1.2});
-    this.layout.cores.forEach(c=>{
+    const coreGeo = new THREE.OctahedronGeometry(0.6, 0);
+    const coreMat = new THREE.MeshStandardMaterial({ color: 0x7b2ff7, emissive: 0x7b2ff7, emissiveIntensity: 1.2 });
+    this.layout.cores.forEach(c => {
       const mesh = new THREE.Mesh(coreGeo, coreMat);
       mesh.position.set(c.x, 1.8, c.z);
       three.scene.add(mesh);
       const light = new THREE.PointLight(0x7b2ff7, 1.2, 6);
       mesh.add(light);
-      this.cores[c.id] = {mesh, active:true, x:c.x, z:c.z};
+      this.cores[c.id] = { mesh, active: true, x: c.x, z: c.z };
     });
   }
 
   /* ---------------- local player ---------------- */
-  setupLocalPlayer(){
+  setupLocalPlayer() {
     this.player = {
-      x:0, y:1.6, z: this.layout.size*0.7, vy:0, ry:0, rx:0,
-      hp:6, alive:true, hasMega:false, ammo:5, maxAmmo:5, reloading:false,
-      onGround:true, jumpVel:0, speed:5.2
+      x: 0, y: 1.6, z: this.layout.size * 0.7, vy: 0, ry: 0, rx: 0,
+      hp: 6, alive: true, hasMega: false, ammo: 5, maxAmmo: 5, reloading: false,
+      onGround: true, jumpVel: 0, speed: 5.2, moveVelocity: { x: 0, z: 0 },
+      nextShotAt: 0, reloadDoneAt: 0
     };
-    // random spawn around ring
-    const ang = Math.random()*Math.PI*2;
-    const r = this.layout.size*0.6;
-    this.player.x = Math.cos(ang)*r; this.player.z = Math.sin(ang)*r;
+    const spawn = this.findSafeSpawn(0);
+    this.player.x = spawn.x; this.player.z = spawn.z;
     three.camera.position.set(this.player.x, this.player.y, this.player.z);
 
-    // simple gun model attached to camera
+    // layered first-person blaster attached to the camera
     const gunGrp = new THREE.Group();
-    const gunMat = new THREE.MeshStandardMaterial({color:0x222233, emissive:0x00f0ff, emissiveIntensity:0.4});
-    const gunBody = new THREE.Mesh(new THREE.BoxGeometry(0.12,0.12,0.5), gunMat);
-    gunGrp.add(gunBody);
-    gunGrp.position.set(0.25,-0.25,-0.5);
+    const gunMat = new THREE.MeshStandardMaterial({ color: 0x172331, emissive: 0x43f6e4, emissiveIntensity: 0.35, metalness: 0.7, roughness: 0.25 });
+    const accentMat = new THREE.MeshStandardMaterial({ color: 0xffca63, emissive: 0xff8d4d, emissiveIntensity: 0.8, metalness: 0.45 });
+    const gunBody = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.16, 0.58), gunMat);
+    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.28, 0.16), gunMat); grip.position.set(0, -0.16, 0.1); grip.rotation.x = -0.2;
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.06, 0.42, 10), accentMat); barrel.rotation.x = Math.PI / 2; barrel.position.z = -0.46;
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.04, 0.42), accentMat); rail.position.set(0, 0.11, -0.08);
+    gunGrp.add(gunBody, grip, barrel, rail);
+    this.gunMuzzle = new THREE.Object3D();
+    this.gunMuzzle.position.set(0, 0, -0.7);
+    gunGrp.add(this.gunMuzzle);
+    gunGrp.position.set(0.25, -0.25, -0.5);
     three.camera.add(gunGrp);
     three.scene.add(three.camera);
     this.gunGrp = gunGrp;
@@ -499,409 +523,592 @@ class Game{
     this.updateAmmoHUD();
   }
 
-  updateHeartsHUD(){
-    const row = $("hearts-row"); row.innerHTML="";
-    const total = this.player.hp>10?10:10;
-    for(let i=0;i<10;i++){
+  updateHeartsHUD() {
+    const row = $("hearts-row"); row.innerHTML = "";
+    const total = this.player.hp > 10 ? 10 : 10;
+    for (let i = 0; i < 10; i++) {
       const div = document.createElement("div");
-      div.className = "heart-icon " + (i<this.player.hp ? "heart-full":"heart-empty");
-      div.textContent = "❤️"; div.style.fontSize="20px"; div.style.lineHeight="20px";
+      div.className = "heart-icon " + (i < this.player.hp ? "heart-full" : "heart-empty");
+      div.textContent = "❤️"; div.style.fontSize = "20px"; div.style.lineHeight = "20px";
       row.appendChild(div);
     }
   }
-  updateAmmoHUD(){
-    const row = $("ammo-row"); row.innerHTML="";
-    for(let i=0;i<this.player.maxAmmo;i++){
+  updateAmmoHUD() {
+    const row = $("ammo-row"); row.innerHTML = "";
+    for (let i = 0; i < this.player.maxAmmo; i++) {
       const div = document.createElement("div");
-      div.style.fontSize="18px";
+      div.style.fontSize = "18px";
       div.textContent = this.player.hasMega ? "🟨" : "🔷";
-      div.style.opacity = i<this.player.ammo ? 1 : 0.2;
+      div.style.opacity = i < this.player.ammo ? 1 : 0.2;
       row.appendChild(div);
     }
   }
 
   /* ---------------- controls ---------------- */
-  setupControls(){
+  setupControls() {
     this.keys = {};
+    this.controlCleanups = [];
+    const listen = (target, type, handler, options) => {
+      target.addEventListener(type, handler, options);
+      this.controlCleanups.push(() => target.removeEventListener(type, handler, options));
+    };
     this.isTouch = matchMedia("(pointer: coarse)").matches;
-    if(!this.isTouch){
-      $("game-canvas").addEventListener("click", ()=>{
-        if(document.pointerLockElement !== $("game-canvas")) $("game-canvas").requestPointerLock();
+    if (!this.isTouch) {
+      listen($("game-canvas"), "click", () => {
+        if (document.pointerLockElement !== $("game-canvas")) $("game-canvas").requestPointerLock();
         else this.shoot();
       });
-      document.addEventListener("mousemove", e=>{
-        if(document.pointerLockElement === $("game-canvas")){
-          this.player.ry -= e.movementX*0.0022;
-          this.player.rx -= e.movementY*0.0022;
+      listen(document, "mousemove", e => {
+        if (document.pointerLockElement === $("game-canvas")) {
+          this.player.ry -= e.movementX * 0.0022;
+          this.player.rx -= e.movementY * 0.0022;
           this.player.rx = Math.max(-1.2, Math.min(1.2, this.player.rx));
         }
       });
-      let escCount=0, escTimer=null;
-      document.addEventListener("keydown", e=>{
-        this.keys[e.code]=true;
-        if(e.code==="KeyR") this.reload();
-        if(e.code==="Escape"){
+      let escCount = 0, escTimer = null;
+      listen(document, "keydown", e => {
+        if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+        this.keys[e.code] = true;
+        if (["KeyW", "KeyA", "KeyS", "KeyD", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(e.code)) e.preventDefault();
+        if (e.code === "KeyR") this.reload();
+        if (e.code === "KeyE") this.tryOpenNearestCore();
+        if (e.code === "Escape") {
           escCount++;
           clearTimeout(escTimer);
-          escTimer = setTimeout(()=>escCount=0, 800);
-          if(escCount>=2) leaveMatch();
+          escTimer = setTimeout(() => escCount = 0, 800);
+          if (escCount >= 2) leaveMatch();
         }
       });
-      document.addEventListener("keyup", e=> this.keys[e.code]=false);
+      listen(document, "keyup", e => this.keys[e.code] = false);
+      listen(window, "blur", () => {
+        this.keys = {};
+        this.player.moveVelocity.x = 0;
+        this.player.moveVelocity.z = 0;
+      });
+      this.controlCleanups.push(() => clearTimeout(escTimer));
     } else {
       $("mobile-controls").classList.remove("hidden");
-      this.setupTouchControls();
+      this.setupTouchControls(listen);
     }
   }
 
-  setupTouchControls(){
+  setupTouchControls(listen) {
     const zone = $("joystick-zone"), knob = $("joystick-knob");
-    let jTouchId=null, jStart={x:0,y:0};
-    this.touchMove = {x:0,y:0};
-    zone.addEventListener("touchstart", e=>{
-      const t=e.changedTouches[0]; jTouchId=t.identifier;
-      const rect = zone.getBoundingClientRect(); jStart={x:rect.left+rect.width/2, y:rect.top+rect.height/2};
+    let jTouchId = null, jStart = { x: 0, y: 0 };
+    this.touchMove = { x: 0, y: 0 };
+    listen(zone, "touchstart", e => {
+      const t = e.changedTouches[0]; jTouchId = t.identifier;
+      const rect = zone.getBoundingClientRect(); jStart = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
     });
-    zone.addEventListener("touchmove", e=>{
-      for(const t of e.changedTouches){
-        if(t.identifier===jTouchId){
-          let dx=t.clientX-jStart.x, dy=t.clientY-jStart.y;
-          const max=45; const d=Math.hypot(dx,dy);
-          if(d>max){dx=dx/d*max; dy=dy/d*max;}
-          knob.style.left=(37+dx)+"px"; knob.style.top=(37+dy)+"px";
-          this.touchMove = {x:dx/max, y:dy/max};
+    listen(zone, "touchmove", e => {
+      for (const t of e.changedTouches) {
+        if (t.identifier === jTouchId) {
+          let dx = t.clientX - jStart.x, dy = t.clientY - jStart.y;
+          const max = 45; const d = Math.hypot(dx, dy);
+          if (d > max) { dx = dx / d * max; dy = dy / d * max; }
+          knob.style.left = (37 + dx) + "px"; knob.style.top = (37 + dy) + "px";
+          this.touchMove = { x: dx / max, y: dy / max };
         }
       }
       e.preventDefault();
-    }, {passive:false});
-    zone.addEventListener("touchend", ()=>{ jTouchId=null; this.touchMove={x:0,y:0}; knob.style.left="37px"; knob.style.top="37px"; });
+    }, { passive: false });
+    listen(zone, "touchend", () => { jTouchId = null; this.touchMove = { x: 0, y: 0 }; knob.style.left = "37px"; knob.style.top = "37px"; });
 
     const look = $("look-zone");
-    let lTouchId=null, lastX=0,lastY=0;
-    look.addEventListener("touchstart", e=>{
-      const t=e.changedTouches[0]; lTouchId=t.identifier; lastX=t.clientX; lastY=t.clientY;
+    let lTouchId = null, lastX = 0, lastY = 0;
+    listen(look, "touchstart", e => {
+      const t = e.changedTouches[0]; lTouchId = t.identifier; lastX = t.clientX; lastY = t.clientY;
     });
-    look.addEventListener("touchmove", e=>{
-      for(const t of e.changedTouches){
-        if(t.identifier===lTouchId){
-          const dx=t.clientX-lastX, dy=t.clientY-lastY;
-          lastX=t.clientX; lastY=t.clientY;
-          this.player.ry -= dx*0.004;
-          this.player.rx -= dy*0.004;
+    listen(look, "touchmove", e => {
+      for (const t of e.changedTouches) {
+        if (t.identifier === lTouchId) {
+          const dx = t.clientX - lastX, dy = t.clientY - lastY;
+          lastX = t.clientX; lastY = t.clientY;
+          this.player.ry -= dx * 0.004;
+          this.player.rx -= dy * 0.004;
           this.player.rx = Math.max(-1.2, Math.min(1.2, this.player.rx));
-          if(this.activeCore) this.checkCoreTapAim();
+          if (this.activeCore) this.checkCoreTapAim();
         }
       }
       e.preventDefault();
-    }, {passive:false});
-    look.addEventListener("touchend", ()=>{ lTouchId=null; });
+    }, { passive: false });
+    listen(look, "touchend", () => { lTouchId = null; });
 
-    $("mobile-tag").addEventListener("touchstart", e=>{ e.preventDefault(); this.shoot(); });
-    $("mobile-jump").addEventListener("touchstart", e=>{ e.preventDefault(); this.tryJump(); });
+    listen($("mobile-tag"), "touchstart", e => { e.preventDefault(); this.shoot(); });
+    listen($("mobile-jump"), "touchstart", e => { e.preventDefault(); this.tryJump(); });
   }
 
-  tryJump(){
-    if(this.player.onGround){ this.player.jumpVel = 6.2; this.player.onGround=false; }
+  tryJump() {
+    if (this.player.onGround) { this.player.jumpVel = 6.2; this.player.onGround = false; }
   }
 
-  reload(){
-    this.player.ammo = this.player.maxAmmo;
-    this.updateAmmoHUD();
+  reload() {
+    if (this.player.reloading || this.player.ammo >= this.player.maxAmmo || !this.player.alive) return;
+    this.player.reloading = true;
+    this.player.reloadDoneAt = performance.now() + 850;
+    this.addKillfeed("Recharging...");
   }
 
   /* ---------------- shooting ---------------- */
-  shoot(){
-    if(!this.player.alive || this.ended) return;
-    if(this.activeCore){ this.resolveCoreClick(); return; }
-    if(this.player.ammo<=0) return;
-    this.player.ammo--; this.updateAmmoHUD();
+  shoot() {
+    if (!this.player.alive || this.ended) return;
+    const now = performance.now();
+    if (this.player.reloading || now < this.player.nextShotAt) return;
+    if (this.player.ammo <= 0) return;
+    this.player.nextShotAt = now + (this.player.hasMega ? 130 : 190);
+    this.player.ammo--;
+    if (this.player.ammo === 0) this.reload();
+    this.updateAmmoHUD();
 
     const raycaster = new THREE.Raycaster();
-    raycaster.setFromCamera({x:0,y:0}, three.camera);
-    this.fireLaserVisual();
+    const origin = new THREE.Vector3();
+    this.gunMuzzle.getWorldPosition(origin);
+    const direction = new THREE.Vector3();
+    three.camera.getWorldDirection(direction);
+    raycaster.set(origin, direction);
+    const wallHit = raycaster.intersectObjects(this.wallMeshes, true)[0];
+    const maxDistance = wallHit ? wallHit.distance : 80;
+    this.fireLaserVisual(origin, direction, maxDistance);
 
     // check hits against remote players
-    let closestId=null, closestDist=Infinity;
-    for(const id in this.remotePlayers){
+    let closestId = null, closestDist = Infinity;
+    for (const id in this.remotePlayers) {
       const rp = this.remotePlayers[id];
-      if(!rp.alive) continue;
-      const target = new THREE.Vector3(rp.x, rp.y-0.4, rp.z);
+      if (!rp.alive) continue;
+      const target = new THREE.Vector3(rp.x, rp.y - 0.4, rp.z);
       const dist = raycaster.ray.distanceToPoint(target);
-      const camDist = three.camera.position.distanceTo(target);
-      if(dist < 0.9 && camDist < 60 && camDist<closestDist){ closestDist=camDist; closestId=id; }
+      const shotDistance = origin.distanceTo(target);
+      if (dist < 0.9 && shotDistance < maxDistance && shotDistance < closestDist) { closestDist = shotDistance; closestId = id; }
     }
-    if(closestId){
+    if (closestId) {
       this.dealDamage(closestId, 1);
     }
   }
 
-  fireLaserVisual(){
-    const dir = new THREE.Vector3(); three.camera.getWorldDirection(dir);
-    const start = three.camera.position.clone().add(dir.clone().multiplyScalar(0.6));
-    const end = start.clone().add(dir.clone().multiplyScalar(80));
-    const geo = new THREE.BufferGeometry().setFromPoints([start,end]);
-    const mat = new THREE.LineBasicMaterial({color: this.player.hasMega?0xffd23f:0x00f0ff, transparent:true, opacity:0.9});
+  fireLaserVisual(start, dir, distance) {
+    const end = start.clone().add(dir.clone().multiplyScalar(distance));
+    const color = this.player.hasMega ? 0xffd23f : 0x00f0ff;
+    const points = [start, end];
+    const geo = new THREE.BufferGeometry().setFromPoints(points);
+    const glowGeo = new THREE.BufferGeometry().setFromPoints(points);
+    const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 1 });
+    const glowMat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.22, linewidth: 4 });
     const line = new THREE.Line(geo, mat);
-    three.scene.add(line);
-    setTimeout(()=>{ three.scene.remove(line); geo.dispose(); mat.dispose(); }, 90);
+    const glow = new THREE.Line(glowGeo, glowMat);
+    const boltMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 1 });
+    const bolt = new THREE.Mesh(new THREE.SphereGeometry(0.11, 8, 8), boltMat);
+    bolt.position.copy(start);
+    three.scene.add(glow, line, bolt);
+    const flash = $("muzzle-flash");
+    flash.classList.remove("firing");
+    void flash.offsetWidth;
+    flash.classList.add("firing");
+    const started = performance.now();
+    const animateBeam = now => {
+      const progress = Math.min(1, (now - started) / 220);
+      mat.opacity = 1 - progress;
+      glowMat.opacity = 0.22 * (1 - progress);
+      bolt.position.lerpVectors(start, end, Math.min(1, progress * 1.2));
+      boltMat.opacity = 1 - progress;
+      if (progress < 1 && !this.disposed) requestAnimationFrame(animateBeam);
+      else {
+        three.scene.remove(line, glow, bolt);
+        geo.dispose(); glowGeo.dispose(); mat.dispose(); glowMat.dispose(); bolt.geometry.dispose(); boltMat.dispose();
+      }
+    };
+    requestAnimationFrame(animateBeam);
   }
 
-  dealDamage(targetId, amount){
+  dealDamage(targetId, amount) {
     // send tag event; authoritative resolution happens wherever the target's "home" is —
     // for simplicity every client resolves its own hp locally from tag events addressed to it,
     // and the host relays so everyone stays roughly in sync.
-    const msg = {t:"tag", from:this.myId, fromName:this.myName, to:targetId, amount};
-    if(targetId.startsWith("bot_")){
-      if(this.mode!=="client") this.applyTagToBot(targetId, this.myId, this.myName, amount);
-      if(this.mode==="host") Net.broadcast(msg);
+    const msg = { t: "tag", from: this.myId, fromName: this.myName, to: targetId, amount };
+    if (targetId.startsWith("bot_")) {
+      if (this.mode !== "client") this.applyTagToBot(targetId, this.myId, this.myName, amount);
+      if (this.mode === "host") Net.broadcast(msg);
     } else {
       Net.broadcast(msg);
-      if(this.mode==="host") this.handleNetMessage(this.myId, msg); // host applies immediately too
+      if (this.mode === "host") this.handleNetMessage(this.myId, msg); // host applies immediately too
     }
     save.tags++; saveSave(); refreshStatsStrip();
   }
 
-  applyTagToBot(botId, fromId, fromName, amount){
-    const b = this.bots[botId]; if(!b || !b.alive) return;
+  applyTagToBot(botId, fromId, fromName, amount) {
+    const b = this.bots[botId]; if (!b || !b.alive) return;
     b.hp -= amount;
     this.addKillfeed(`${fromName} tagged ${b.name}`);
-    if(b.hp<=0){ b.hp=0; b.alive=false; b.respawnAt = performance.now()+99999; this.addKillfeed(`${b.name} is out!`); this.checkWinCondition(); }
+    if (b.hp <= 0) {
+      b.hp = 0; b.alive = false;
+      if (fromId === this.myId) this.addScore(1);
+      this.addKillfeed(`${b.name} is out!`);
+      b.respawnAt = this.gameMode === "score" ? performance.now() + 1800 : 0;
+    }
     const rp = this.remotePlayers[botId];
-    if(rp) rp.applyState({x:b.x,y:1.6,z:b.z,ry:b.ry,hp:b.hp,alive:b.alive,hasMega:false});
-    if(this.mode==="host") Net.broadcast({t:"botstate", id:botId, x:b.x,y:1.6,z:b.z,ry:b.ry,hp:b.hp,alive:b.alive,name:b.name});
+    if (rp) rp.applyState({ x: b.x, y: 1.6, z: b.z, ry: b.ry, hp: b.hp, alive: b.alive, hasMega: false });
+    if (this.mode === "host") Net.broadcast({ t: "botstate", id: botId, x: b.x, y: 1.6, z: b.z, ry: b.ry, hp: b.hp, alive: b.alive, name: b.name });
+    if (this.gameMode === "battle") this.checkWinCondition();
   }
 
   /* ---------------- power cores ---------------- */
-  checkNearestCore(){
-    if(this.activeCore) return;
-    for(const id in this.cores){
+  tryOpenNearestCore() {
+    if (this.activeCore) { this.resolveCoreClick(); return; }
+    for (const id in this.cores) {
       const c = this.cores[id];
-      if(!c.active) continue;
-      const d = Math.hypot(this.player.x-c.x, this.player.z-c.z);
-      if(d < 3.2){ this.openCore(id); return; }
+      if (!c.active) continue;
+      const d = Math.hypot(this.player.x - c.x, this.player.z - c.z);
+      if (d < 3.2) { this.openCore(id); return; }
     }
   }
-  openCore(id){
-    this.activeCore = {id, t0:performance.now(), duration:2600, target: 0.35+Math.random()*0.4};
+  openCore(id) {
+    this.activeCore = { id, t0: performance.now(), duration: 2600, target: 0.35 + Math.random() * 0.4 };
     $("power-core-prompt").classList.remove("hidden");
     const targetArc = document.getElementById("core-ring-target");
-    const off = 314*(1-this.activeCore.target);
-    targetArc.style.strokeDasharray = `18 ${314-18}`;
-    targetArc.style.transform = `rotate(${this.activeCore.target*360}deg)`;
+    const off = 314 * (1 - this.activeCore.target);
+    targetArc.style.strokeDasharray = `18 ${314 - 18}`;
+    targetArc.style.transform = `rotate(${this.activeCore.target * 360}deg)`;
     targetArc.style.transformOrigin = "60px 60px";
   }
-  resolveCoreClick(){
-    const ac = this.activeCore; if(!ac) return;
-    const elapsed = (performance.now()-ac.t0)/ac.duration;
+  resolveCoreClick() {
+    const ac = this.activeCore; if (!ac) return;
+    const elapsed = (performance.now() - ac.t0) / ac.duration;
     const progress = Math.min(1, elapsed);
     const hit = Math.abs(progress - ac.target) < 0.09;
     this.closeCore();
-    if(hit){
-      Net.broadcast({t:"core", id:ac.id, by:this.myId, byName:this.myName});
-      if(this.mode==="host") this.handleNetMessage(this.myId, {t:"core", id:ac.id, by:this.myId, byName:this.myName});
+    if (hit) {
+      Net.broadcast({ t: "core", id: ac.id, by: this.myId, byName: this.myName });
+      if (this.mode === "host") this.handleNetMessage(this.myId, { t: "core", id: ac.id, by: this.myId, byName: this.myName });
       else this.grantCoreReward(true); // optimistic local reward on client while host confirms
     } else {
       this.addKillfeed("Missed the core!");
     }
   }
-  closeCore(){
-    this.activeCore=null;
+  closeCore() {
+    this.activeCore = null;
     $("power-core-prompt").classList.add("hidden");
   }
-  checkCoreTapAim(){ /* mobile: tap already handled by shoot() while activeCore set */ }
+  checkCoreTapAim() { /* mobile: tap already handled by shoot() while activeCore set */ }
 
-  grantCoreReward(isMega){
-    if(Math.random()<0.35 || isMega===true && false){} // placeholder no-op to keep structure simple
-    const giveMega = Math.random()<0.3;
-    if(giveMega){ this.player.hasMega=true; this.player.maxAmmo=6; this.player.ammo=Math.min(6,this.player.ammo+1); this.addKillfeed("You earned the MEGA WAND! ✨"); }
-    else { this.player.hp = Math.min(10, this.player.hp+1); this.addKillfeed("Power Core: +1 heart!"); }
+  grantCoreReward(isMega) {
+    if (Math.random() < 0.35 || isMega === true && false) { } // placeholder no-op to keep structure simple
+    const giveMega = Math.random() < 0.3;
+    if (giveMega) { this.player.hasMega = true; this.player.maxAmmo = 6; this.player.ammo = Math.min(6, this.player.ammo + 1); this.addKillfeed("You earned the MEGA WAND! ✨"); }
+    else { this.player.hp = Math.min(10, this.player.hp + 1); this.addKillfeed("Power Core: +1 heart!"); }
     this.updateHeartsHUD(); this.updateAmmoHUD();
   }
 
   /* ---------------- hearts pickups ---------------- */
-  checkHeartPickup(){
-    for(const id in this.hearts){
+  checkHeartPickup() {
+    for (const id in this.hearts) {
       const h = this.hearts[id];
-      if(!h.active) continue;
-      const d = Math.hypot(this.player.x-h.x, this.player.z-h.z);
-      if(d < 1.1 && this.player.hp<10){
-        h.active=false; h.mesh.visible=false;
-        this.player.hp = Math.min(10, this.player.hp+2);
+      if (!h.active) continue;
+      const d = Math.hypot(this.player.x - h.x, this.player.z - h.z);
+      if (d < 1.1 && this.player.hp < 10) {
+        h.active = false; h.mesh.visible = false;
+        this.player.hp = Math.min(10, this.player.hp + 2);
         this.updateHeartsHUD();
-        Net.broadcast({t:"heart", id});
-        setTimeout(()=>{ h.active=true; h.mesh.visible=true; }, 15000);
+        Net.broadcast({ t: "heart", id });
+        setTimeout(() => { h.active = true; h.mesh.visible = true; }, 15000);
       }
     }
   }
 
   /* ---------------- bots ---------------- */
-  spawnBots(n){
-    for(let i=0;i<n;i++){
-      const id = "bot_"+i;
-      const ang = Math.random()*Math.PI*2, r=this.layout.size*0.5*Math.random();
+  spawnBots(n) {
+    for (let i = 0; i < n; i++) {
+      const id = "bot_" + i;
+      const spawn = this.findSafeSpawn(3, id);
       const bot = {
-        id, name: randomName().slice(0,12), x:Math.cos(ang)*r, z:Math.sin(ang)*r, ry:Math.random()*Math.PI*2,
-        hp:6, alive:true, target:null, wanderAngle:Math.random()*Math.PI*2, cooldown:0
+        id, name: randomName().slice(0, 12), x: spawn.x, z: spawn.z, ry: Math.random() * Math.PI * 2,
+        hp: 6, alive: true, target: null, wanderAngle: Math.random() * Math.PI * 2, cooldown: 0, shotCooldown: Math.random()
       };
-      this.bots[id]=bot;
+      this.bots[id] = bot;
       const rp = new RemotePlayer(id, bot.name);
       three.scene.add(rp.mesh);
-      this.remotePlayers[id]=rp;
+      this.remotePlayers[id] = rp;
     }
   }
-  updateBots(dt){
-    if(this.mode==="client") return; // only host/solo simulate bots
-    for(const id in this.bots){
+  updateBots(dt) {
+    if (this.mode === "client") return; // only host/solo simulate bots
+    for (const id in this.bots) {
       const b = this.bots[id];
-      if(!b.alive) continue;
-      // simple wander + occasional shove toward center as zone shrinks
-      b.wanderAngle += (Math.random()-0.5)*0.6*dt;
+      if (!b.alive) {
+        if (this.gameMode === "score" && b.respawnAt && performance.now() >= b.respawnAt) this.respawnBot(b);
+        continue;
+      }
+      const target = this.findBotTarget(b);
+      b.target = target ? target.id : null;
       let mvx = Math.cos(b.wanderAngle), mvz = Math.sin(b.wanderAngle);
-      const distCenter = Math.hypot(b.x,b.z);
-      if(distCenter > this.zoneRadius*0.85){ mvx = -b.x/distCenter; mvz = -b.z/distCenter; }
-      const speed = 2.6;
-      let nx = b.x + mvx*speed*dt, nz = b.z + mvz*speed*dt;
-      if(!this.collidesWalls(nx,nz)){ b.x=nx; b.z=nz; }
-      b.ry = Math.atan2(mvx,mvz);
+      const distCenter = Math.hypot(b.x, b.z);
+      let targetDistance = Infinity;
+      if (target) {
+        const dx = target.x - b.x, dz = target.z - b.z;
+        targetDistance = Math.hypot(dx, dz);
+        const inv = targetDistance || 1;
+        const towardX = dx / inv, towardZ = dz / inv;
+        const strafeX = -towardZ, strafeZ = towardX;
+        const strafe = Math.sin(performance.now() * 0.001 + b.id.length) * 0.65;
+        const approach = targetDistance > 9 ? 1 : targetDistance < 5 ? -0.7 : 0;
+        mvx = towardX * approach + strafeX * strafe;
+        mvz = towardZ * approach + strafeZ * strafe;
+      } else {
+        b.wanderAngle += (Math.random() - 0.5) * 0.6 * dt;
+        mvx = Math.cos(b.wanderAngle); mvz = Math.sin(b.wanderAngle);
+      }
+      if (this.gameMode === "battle" && distCenter > this.zoneRadius * 0.85) { mvx = -b.x / Math.max(1, distCenter); mvz = -b.z / Math.max(1, distCenter); }
+      const moveLength = Math.hypot(mvx, mvz) || 1;
+      mvx /= moveLength; mvz /= moveLength;
+      const speed = target ? 3.1 : 2.2;
+      let nx = b.x + mvx * speed * dt, nz = b.z + mvz * speed * dt;
+      if (!this.collidesWalls(nx, nz)) { b.x = nx; b.z = nz; }
+      b.ry = Math.atan2(mvx, mvz);
 
-      // occasionally "tag" nearby player (simplified, no real raycast for bots)
-      b.cooldown -= dt;
-      if(b.cooldown<=0){
-        const dPlayer = Math.hypot(this.player.x-b.x, this.player.z-b.z);
-        if(dPlayer < 14 && this.player.alive && Math.random()<0.5){
-          b.cooldown = 1.6+Math.random();
-          if(Math.random()<0.55){
-            this.applyTagToLocal(1, b.name);
-          }
-        } else {
-          b.cooldown = 0.6;
-        }
+      b.shotCooldown -= dt;
+      if (target && targetDistance < 22 && b.shotCooldown <= 0 && this.botHasLineOfSight(b, target)) {
+        b.shotCooldown = 1.2 + Math.random() * 0.9;
+        if (Math.random() < 0.48) this.botShoot(b, target);
       }
       const rp = this.remotePlayers[id];
-      rp.applyState({x:b.x,y:1.6,z:b.z,ry:b.ry,hp:b.hp,alive:b.alive,hasMega:false});
+      rp.applyState({ x: b.x, y: 1.6, z: b.z, ry: b.ry, hp: b.hp, alive: b.alive, hasMega: false });
     }
   }
 
-  applyTagToLocal(amount, fromName){
-    if(!this.player.alive) return;
+  findBotTarget(bot) {
+    const candidates = [];
+    if (this.player.alive) candidates.push({ id: this.myId, x: this.player.x, z: this.player.z });
+    for (const id in this.remotePlayers) {
+      const rp = this.remotePlayers[id];
+      if (rp.alive && id !== bot.id) candidates.push({ id, x: rp.x, z: rp.z });
+    }
+    candidates.sort((a, b) => Math.hypot(a.x - bot.x, a.z - bot.z) - Math.hypot(b.x - bot.x, b.z - bot.z));
+    return candidates[0] || null;
+  }
+
+  botHasLineOfSight(bot, target) {
+    const origin = new THREE.Vector3(bot.x, 1.15, bot.z);
+    const end = new THREE.Vector3(target.x, 1.15, target.z);
+    const direction = end.clone().sub(origin);
+    const distance = direction.length();
+    direction.normalize();
+    const hit = new THREE.Raycaster(origin, direction).intersectObjects(this.wallMeshes, true)[0];
+    return !hit || hit.distance >= distance - 0.35;
+  }
+
+  botShoot(bot, target) {
+    if (target.id === this.myId) {
+      this.applyTagToLocal(1, bot.name, bot.id);
+      return;
+    }
+    const message = { t: "tag", from: bot.id, fromName: bot.name, to: target.id, amount: 1 };
+    this.handleNetMessage(bot.id, message);
+  }
+
+  applyTagToLocal(amount, fromName, fromId) {
+    if (!this.player.alive) return;
     this.player.hp -= amount;
     this.addKillfeed(`${fromName} tagged you!`);
     this.updateHeartsHUD();
-    if(this.player.hp<=0){
-      this.player.hp=0; this.player.alive=false;
+    if (this.player.hp <= 0) {
+      this.player.hp = 0; this.player.alive = false;
       this.addKillfeed("You're out!");
-      this.checkWinCondition();
+      this.deaths++;
+      if (fromId && fromId !== this.myId && this.gameMode === "score") {
+        const attacker = this.remotePlayers[fromId];
+        if (attacker) attacker.score = (attacker.score || 0) + 1;
+      }
+      if (this.gameMode === "score") this.player.respawnAt = performance.now() + 1800;
+      else this.checkWinCondition();
     }
   }
 
+  respawnBot(bot) {
+    const spawn = this.findSafeSpawn(4, bot.id);
+    bot.x = spawn.x; bot.z = spawn.z;
+    bot.hp = 6; bot.alive = true; bot.respawnAt = 0;
+    const rp = this.remotePlayers[bot.id];
+    if (rp) rp.applyState({ x: bot.x, y: 1.6, z: bot.z, ry: bot.ry, hp: bot.hp, alive: true, hasMega: false });
+    if (this.mode === "host") Net.broadcast({ t: "botstate", id: bot.id, x: bot.x, y: 1.6, z: bot.z, ry: bot.ry, hp: bot.hp, alive: true, name: bot.name });
+  }
+
+  respawnLocal() {
+    const spawn = this.findSafeSpawn(4);
+    this.player.x = spawn.x; this.player.z = spawn.z;
+    this.player.hp = 6; this.player.alive = true; this.player.respawnAt = 0;
+    this.updateHeartsHUD();
+    this.addKillfeed("Back in the arena!");
+  }
+
+  findSafeSpawn(minDistance = 0, ignoredBotId = null) {
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const angle = Math.random() * Math.PI * 2;
+      const radius = this.layout.size * (0.28 + Math.random() * 0.48);
+      const x = Math.cos(angle) * radius;
+      const z = Math.sin(angle) * radius;
+      if (this.collidesWalls(x, z)) continue;
+      if (minDistance && Math.hypot(x - this.player.x, z - this.player.z) < minDistance) continue;
+      let occupied = false;
+      for (const id in this.bots) {
+        if (id !== ignoredBotId && Math.hypot(x - this.bots[id].x, z - this.bots[id].z) < minDistance) { occupied = true; break; }
+      }
+      if (!occupied) return { x, z };
+    }
+    return { x: 0, z: 0 };
+  }
+
   /* ---------------- networking messages ---------------- */
-  handleNetMessage(from, data){
-    switch(data.t){
+  handleNetMessage(from, data) {
+    switch (data.t) {
       case "state":
         this.ensureRemote(from, data.name).applyState(data);
         break;
       case "tag":
-        if(data.to===this.myId){ this.applyTagToLocal(data.amount, data.fromName); if(this.mode==="host") Net.broadcast(data); }
-        else if(this.mode==="host" && !data.to.startsWith("bot_")){ Net.broadcast(data); }
+        if (data.to === this.myId) { this.applyTagToLocal(data.amount, data.fromName, data.from); if (this.mode === "host") Net.broadcast(data); }
+        else if (this.mode === "host" && data.to.startsWith("bot_")) { this.applyTagToBot(data.to, data.from, data.fromName, data.amount); Net.broadcast(data); }
+        else if (this.mode === "host" && !data.to.startsWith("bot_")) { Net.broadcast(data); }
         break;
       case "core":
-        { const c=this.cores[data.id]; if(c && c.active){ c.active=false; c.mesh.visible=false;
-          this.addKillfeed(`${data.byName} claimed a Power Core!`);
-          if(data.by===this.myId) this.grantCoreReward();
-          if(this.mode==="host") Net.broadcast(data);
-          setTimeout(()=>{ if(c){c.active=true; c.mesh.visible=true;} }, 20000);
-        } }
+        {
+          const c = this.cores[data.id]; if (c && c.active) {
+            c.active = false; c.mesh.visible = false;
+            this.addKillfeed(`${data.byName} claimed a Power Core!`);
+            if (data.by === this.myId) this.grantCoreReward();
+            if (this.mode === "host") Net.broadcast(data);
+            setTimeout(() => { if (c) { c.active = true; c.mesh.visible = true; } }, 20000);
+          }
+        }
         break;
       case "heart":
-        { const h=this.hearts[data.id]; if(h){ h.active=false; h.mesh.visible=false; setTimeout(()=>{h.active=true;h.mesh.visible=true;},15000);} }
+        { const h = this.hearts[data.id]; if (h) { h.active = false; h.mesh.visible = false; setTimeout(() => { h.active = true; h.mesh.visible = true; }, 15000); } }
         break;
       case "botstate":
         this.ensureRemote(data.id, data.name).applyState(data);
+        break;
+      case "timer":
+        this.timeLeft = data.left;
+        this.zoneRadius = data.zone;
+        this.zoneRing.scale.setScalar(this.zoneRadius);
+        $("match-timer").textContent = formatTime(Math.max(0, this.timeLeft));
         break;
       case "matchend":
         this.onMatchEndMessage(data);
         break;
       case "join":
         this.ensureRemote(from, data.name);
-        if(this.mode==="host"){
-          Net.sendTo(from, {t:"welcome", seed:this.seed, botCount:Object.keys(this.bots).length});
+        if (this.mode === "host") {
+          Net.sendTo(from, { t: "welcome", seed: this.seed, botCount: Object.keys(this.bots).length });
         }
         break;
       case "start":
-        startCountdownAndPlay();
+        startCountdownAndPlay(data.gameMode);
         break;
     }
   }
-  ensureRemote(id, name){
-    if(!this.remotePlayers[id]){
-      const rp = new RemotePlayer(id, name||"Player");
+  ensureRemote(id, name) {
+    if (!this.remotePlayers[id]) {
+      const rp = new RemotePlayer(id, name || "Player");
       three.scene.add(rp.mesh);
-      this.remotePlayers[id]=rp;
+      this.remotePlayers[id] = rp;
     }
     return this.remotePlayers[id];
   }
-  removeRemote(id){
+  removeRemote(id) {
     const rp = this.remotePlayers[id];
-    if(rp){ three.scene.remove(rp.mesh); delete this.remotePlayers[id]; }
+    if (rp) { three.scene.remove(rp.mesh); delete this.remotePlayers[id]; }
   }
-  addKillfeed(text){
+  addKillfeed(text) {
     const el = document.createElement("div");
-    el.className="kill-row"; el.textContent = text;
+    el.className = "kill-row"; el.textContent = text;
     this.killfeedEl.appendChild(el);
-    setTimeout(()=> el.remove(), 4000);
+    setTimeout(() => el.remove(), 4000);
   }
 
   /* ---------------- collision ---------------- */
-  collidesWalls(x,z){
-    for(const w of this.layout.walls){
-      const cos=Math.cos(-w.ry), sin=Math.sin(-w.ry);
-      const dx=x-w.x, dz=z-w.z;
-      const lx = dx*cos - dz*sin, lz = dx*sin + dz*cos;
-      if(Math.abs(lx) < w.w/2+0.4 && Math.abs(lz) < w.d/2+0.4) return true;
+  collidesWalls(x, z) {
+    for (const w of this.layout.walls) {
+      const cos = Math.cos(-w.ry), sin = Math.sin(-w.ry);
+      const dx = x - w.x, dz = z - w.z;
+      const lx = dx * cos - dz * sin, lz = dx * sin + dz * cos;
+      if (Math.abs(lx) < w.w / 2 + 0.4 && Math.abs(lz) < w.d / 2 + 0.4) return true;
     }
-    return this.layout.size*1.19 < Math.hypot(x,z);
+    for (const bunker of this.layout.bunkers) {
+      const cos = Math.cos(-bunker.ry), sin = Math.sin(-bunker.ry);
+      const dx = x - bunker.x, dz = z - bunker.z;
+      const lx = dx * cos - dz * sin, lz = dx * sin + dz * cos;
+      const nearSide = Math.abs(lz) < 1.5 + 0.4 && (Math.abs(lx - 1.5) < 0.15 + 0.4 || Math.abs(lx + 1.5) < 0.15 + 0.4);
+      const nearBack = Math.abs(lx) < 1.5 + 0.4 && Math.abs(lz + 1.5) < 0.15 + 0.4;
+      if (nearSide || nearBack) return true;
+    }
+    for (const ramp of this.layout.ramps) {
+      const cos = Math.cos(-ramp.ry), sin = Math.sin(-ramp.ry);
+      const dx = x - ramp.x, dz = z - ramp.z;
+      const lx = dx * cos - dz * sin, lz = dx * sin + dz * cos;
+      if (Math.abs(lx) < 2.0 + 0.4 && Math.abs(lz) < 3.0 + 0.4) return true;
+    }
+    return this.layout.size * 1.19 < Math.hypot(x, z);
   }
 
   /* ---------------- main loop ---------------- */
-  animate(t){
-    if(this.disposed) return;
+  animate(t) {
+    if (this.disposed) return;
     requestAnimationFrame(this.animate);
     const now = performance.now();
-    const dt = Math.min(0.05, (now-(this._lastT||now))/1000);
+    const dt = Math.min(0.05, (now - (this._lastT || now)) / 1000);
     this._lastT = now;
 
+    if (this.player.reloading && now >= this.player.reloadDoneAt) {
+      this.player.reloading = false;
+      this.player.ammo = this.player.maxAmmo;
+      this.updateAmmoHUD();
+      this.addKillfeed("Blaster charged");
+    }
+
     this.updateLocalMovement(dt);
+    if (this.gameMode === "score" && !this.player.alive && this.player.respawnAt && now >= this.player.respawnAt) this.respawnLocal();
     this.updateBots(dt);
     this.checkHeartPickup();
-    this.checkNearestCore();
-    if(this.activeCore){
-      const ac=this.activeCore;
-      const progress = Math.min(1,(now-ac.t0)/ac.duration);
-      document.getElementById("core-ring-shrink").style.strokeDashoffset = 314*progress;
-      if(progress>=1) this.closeCore();
+    if (this.activeCore) {
+      const ac = this.activeCore;
+      const progress = Math.min(1, (now - ac.t0) / ac.duration);
+      document.getElementById("core-ring-shrink").style.strokeDashoffset = 314 * progress;
+      if (progress >= 1) this.closeCore();
     }
 
-    if(this.mode!=="client" || true){ /* clients still tick own timer visually */ }
-    if((this.mode==="host"||this.mode==="solo") && this.started && !this.ended){
+    if (this.mode !== "client" || true) { /* clients still tick own timer visually */ }
+    if ((this.mode === "host" || this.mode === "solo") && this.started && !this.ended) {
       this.timeLeft -= dt;
-      this.zoneRadius = Math.max(6, this.layout.size*1.6 * (this.timeLeft/this.matchLen));
-      this.zoneRing.geometry.dispose();
-      this.zoneRing.geometry = new THREE.RingGeometry(Math.max(0,this.zoneRadius-0.3), this.zoneRadius, 64);
-      if(Math.hypot(this.player.x,this.player.z) > this.zoneRadius && this.player.alive){
-        this.player.hp -= dt*1.2;
-        if(this.player.hp<=0){ this.player.hp=0; this.player.alive=false; this.addKillfeed("The zone got you!"); this.checkWinCondition(); }
+      if (this.gameMode === "battle") this.zoneRadius = Math.max(6, this.layout.size * 1.6 * (this.timeLeft / this.matchLen));
+      this.zoneRing.visible = this.gameMode === "battle";
+      this.zoneRing.scale.setScalar(this.zoneRadius);
+      if (this.gameMode === "battle" && Math.hypot(this.player.x, this.player.z) > this.zoneRadius && this.player.alive) {
+        this.player.hp -= dt * 1.2;
+        if (this.player.hp <= 0) {
+          this.player.hp = 0; this.player.alive = false; this.addKillfeed("The zone got you!");
+          if (this.gameMode === "score") { this.deaths++; this.player.respawnAt = now + 1800; }
+          else this.checkWinCondition();
+        }
         this.updateHeartsHUD();
       }
-      if(this.timeLeft<=0) this.endMatch(false);
-      $("match-timer").textContent = formatTime(Math.max(0,this.timeLeft));
-      if(this.mode==="host") Net.broadcast({t:"timer", left:this.timeLeft, zone:this.zoneRadius});
+      if (this.timeLeft <= 0) this.endMatch(false);
+      $("match-timer").textContent = formatTime(Math.max(0, this.timeLeft));
+      if (this.mode === "host" && now - this.lastTimerSent > 500) {
+        this.lastTimerSent = now;
+        Net.broadcast({ t: "timer", left: this.timeLeft, zone: this.zoneRadius });
+      }
     }
-    $("alive-num").textContent = this.countAlive();
+    if (this.score !== this.lastScore) {
+      this.lastScore = this.score;
+      $("score-count").querySelector("strong").textContent = this.score;
+    }
+    const aliveCount = this.countAlive();
+    if (aliveCount !== this.lastAliveCount) {
+      this.lastAliveCount = aliveCount;
+      $("alive-num").textContent = aliveCount;
+    }
 
     // send own state
-    if(now-this.lastSyncSent>66){
+    if (now - this.lastSyncSent > 120) {
       this.lastSyncSent = now;
-      Net.broadcast({t:"state", name:this.myName, x:this.player.x,y:this.player.y,z:this.player.z,ry:this.player.ry,hp:this.player.hp,alive:this.player.alive,hasMega:this.player.hasMega});
+      Net.broadcast({ t: "state", name: this.myName, x: this.player.x, y: this.player.y, z: this.player.z, ry: this.player.ry, hp: this.player.hp, alive: this.player.alive, hasMega: this.player.hasMega, score: this.score });
     }
 
     three.camera.position.set(this.player.x, this.player.y, this.player.z);
@@ -910,92 +1117,138 @@ class Game{
     three.renderer.render(three.scene, three.camera);
   }
 
-  countAlive(){
-    let n = this.player.alive?1:0;
-    for(const id in this.remotePlayers) if(this.remotePlayers[id].alive) n++;
+  countAlive() {
+    let n = this.player.alive ? 1 : 0;
+    for (const id in this.remotePlayers) if (this.remotePlayers[id].alive) n++;
     return n;
   }
 
-  updateLocalMovement(dt){
-    if(!this.player.alive) return;
-    let mx=0, mz=0;
-    if(this.isTouch){
+  addScore(points) {
+    if (this.gameMode !== "score") return;
+    this.score += points;
+    this.addKillfeed(`+${points} KILL`);
+  }
+
+  updateLocalMovement(dt) {
+    if (!this.player.alive) {
+      this.player.moveVelocity.x = 0;
+      this.player.moveVelocity.z = 0;
+      return;
+    }
+    let mx = 0, mz = 0;
+    if (this.isTouch) {
       mx = this.touchMove.x; mz = this.touchMove.y;
     } else {
-      if(this.keys["KeyW"]||this.keys["ArrowUp"]) mz-=1;
-      if(this.keys["KeyS"]||this.keys["ArrowDown"]) mz+=1;
-      if(this.keys["KeyA"]||this.keys["ArrowLeft"]) mx-=1;
-      if(this.keys["KeyD"]||this.keys["ArrowRight"]) mx+=1;
-      if(this.keys["Space"]) this.tryJump();
+      if (this.keys["KeyW"] || this.keys["ArrowUp"]) mz -= 1;
+      if (this.keys["KeyS"] || this.keys["ArrowDown"]) mz += 1;
+      if (this.keys["KeyA"] || this.keys["ArrowLeft"]) mx -= 1;
+      if (this.keys["KeyD"] || this.keys["ArrowRight"]) mx += 1;
+      if (this.keys["Space"]) this.tryJump();
     }
-    const len = Math.hypot(mx,mz);
-    if(len>0.05){
-      mx/=len; mz/=len;
-      const sin=Math.sin(this.player.ry), cos=Math.cos(this.player.ry);
-      const wx = mx*cos - mz*sin, wz = mx*sin + mz*cos;
-      const speed = this.player.speed;
-      const nx = this.player.x + wx*speed*dt, nz = this.player.z + wz*speed*dt;
-      if(!this.collidesWalls(nx, this.player.z)) this.player.x = nx;
-      if(!this.collidesWalls(this.player.x, nz)) this.player.z = nz;
-    }
+    const len = Math.hypot(mx, mz);
+    if (len > 1) { mx /= len; mz /= len; }
+    // Three.js looks down local -Z. Build horizontal camera-relative axes so
+    // W always moves toward the direction the player is looking.
+    const sin = Math.sin(this.player.ry), cos = Math.cos(this.player.ry);
+    const rightX = cos, rightZ = -sin;
+    const forwardX = -sin, forwardZ = -cos;
+    const desiredX = (mx * rightX - mz * forwardX) * this.player.speed;
+    const desiredZ = (mx * rightZ - mz * forwardZ) * this.player.speed;
+    const response = len > 0.05 ? 1 - Math.exp(-18 * dt) : 1 - Math.exp(-24 * dt);
+    this.player.moveVelocity.x += (desiredX - this.player.moveVelocity.x) * response;
+    this.player.moveVelocity.z += (desiredZ - this.player.moveVelocity.z) * response;
+    const nx = this.player.x + this.player.moveVelocity.x * dt;
+    const nz = this.player.z + this.player.moveVelocity.z * dt;
+    if (!this.collidesWalls(nx, this.player.z)) this.player.x = nx;
+    else this.player.moveVelocity.x = 0;
+    if (!this.collidesWalls(this.player.x, nz)) this.player.z = nz;
+    else this.player.moveVelocity.z = 0;
     // gravity/jump
-    this.player.jumpVel -= 16*dt;
-    this.player.y += this.player.jumpVel*dt;
-    if(this.player.y<=1.6){ this.player.y=1.6; this.player.jumpVel=0; this.player.onGround=true; }
+    this.player.jumpVel -= 16 * dt;
+    this.player.y += this.player.jumpVel * dt;
+    if (this.player.y <= 1.6) { this.player.y = 1.6; this.player.jumpVel = 0; this.player.onGround = true; }
   }
 
-  checkWinCondition(){
-    if(this.mode==="client") return;
-    if(this.ended) return;
+  checkWinCondition() {
+    if (this.mode === "client" || this.gameMode !== "battle") return;
+    if (this.ended) return;
     const aliveIds = [];
-    if(this.player.alive) aliveIds.push(this.myId);
-    for(const id in this.remotePlayers) if(this.remotePlayers[id].alive) aliveIds.push(id);
-    if(aliveIds.length<=1) this.endMatch(true, aliveIds[0]);
+    if (this.player.alive) aliveIds.push(this.myId);
+    for (const id in this.remotePlayers) if (this.remotePlayers[id].alive) aliveIds.push(id);
+    if (aliveIds.length <= 1) this.endMatch(true, aliveIds[0]);
   }
 
-  endMatch(byElimination, winnerId){
-    if(this.ended) return;
+  endMatch(byElimination, winnerId) {
+    if (this.ended) return;
     this.ended = true;
     let winnerName = "Nobody";
-    if(byElimination && winnerId){
-      winnerName = winnerId===this.myId ? this.myName : (this.remotePlayers[winnerId] ? this.remotePlayers[winnerId].name : "Bot");
+    if (this.gameMode === "score") {
+      let best = { id: this.myId, name: this.myName, score: this.score };
+      for (const id in this.remotePlayers) {
+        const rp = this.remotePlayers[id];
+        if (rp.score > best.score) best = { id, name: rp.name, score: rp.score };
+      }
+      winnerId = best.id; winnerName = best.name;
+    } else if (byElimination && winnerId) {
+      winnerName = winnerId === this.myId ? this.myName : (this.remotePlayers[winnerId] ? this.remotePlayers[winnerId].name : "Bot");
     } else {
       // time up: highest hp wins
-      let best = {id:this.myId, name:this.myName, hp:this.player.hp, alive:this.player.alive};
-      for(const id in this.remotePlayers){
-        const rp=this.remotePlayers[id];
-        if(rp.alive && rp.hp>best.hp) best={id,name:rp.name,hp:rp.hp,alive:true};
+      let best = { id: this.myId, name: this.myName, hp: this.player.hp, alive: this.player.alive };
+      for (const id in this.remotePlayers) {
+        const rp = this.remotePlayers[id];
+        if (rp.alive && rp.hp > best.hp) best = { id, name: rp.name, hp: rp.hp, alive: true };
       }
       winnerId = best.id; winnerName = best.name;
     }
-    if(this.mode==="host") Net.broadcast({t:"matchend", winnerId, winnerName});
-    this.onMatchEndMessage({winnerId, winnerName});
+    if (this.mode === "host") Net.broadcast({ t: "matchend", winnerId, winnerName });
+    this.onMatchEndMessage({ winnerId, winnerName });
   }
 
-  onMatchEndMessage(data){
-    if(this.matchEndShown) return;
+  onMatchEndMessage(data) {
+    if (this.matchEndShown) return;
     this.matchEndShown = true;
-    const iWon = data.winnerId===this.myId;
+    const iWon = data.winnerId === this.myId;
     const banner = $("banner");
     banner.classList.remove("hidden");
-    banner.innerHTML = `<div class="title">${iWon?"👑 YOU WIN!":data.winnerName+" WINS"}</div><div class="sub">returning to menu…</div>`;
+    const result = this.gameMode === "score" ? `${iWon ? "👑 YOU WIN!" : data.winnerName + " WINS"}<br><small>${iWon ? this.score : "FINAL"} KILLS</small>` : (iWon ? "👑 YOU WIN!" : data.winnerName + " WINS");
+    banner.innerHTML = `<div class="title">${result}</div><div class="sub">${this.modeLabel} COMPLETE</div><button id="rematch-btn" class="primary-btn">${this.mode === "solo" ? "REMATCH" : "RETURN TO MENU"}</button>`;
+    gameScreen.classList.add("match-ended");
+    $("rematch-btn").addEventListener("click", () => {
+      const rematchMode = this.mode;
+      const rematchBots = this.botCount;
+      const rematchGameMode = this.gameMode;
+      this.dispose();
+      returnToMenu();
+      if (rematchMode === "solo") startMatch("solo", { botCount: rematchBots, gameMode: rematchGameMode });
+    }, { once: true });
     save.matches++;
-    if(iWon){ save.crowns++; save.wins++; }
-    save.history.push({win:iWon, mode:this.mode, date:new Date().toLocaleDateString()});
+    if (iWon) { save.crowns++; save.wins++; }
+    save.history.push({ win: iWon, mode: this.gameMode, date: new Date().toLocaleDateString() });
     saveSave(); refreshStatsStrip();
     document.exitPointerLock && document.exitPointerLock();
-    setTimeout(()=>{ this.dispose(); returnToMenu(); }, 3200);
   }
 
-  dispose(){
+  dispose() {
     this.disposed = true;
-    if(three.renderer){ three.renderer.dispose(); }
+    if (this.controlCleanups) this.controlCleanups.splice(0).forEach(cleanup => cleanup());
+    if (this.resizeHandler) removeEventListener("resize", this.resizeHandler);
+    three.scene && three.scene.traverse(object => {
+      if (object.geometry) object.geometry.dispose();
+      if (object.material) {
+        const materials = Array.isArray(object.material) ? object.material : [object.material];
+        materials.forEach(material => {
+          if (material.map) material.map.dispose();
+          material.dispose();
+        });
+      }
+    });
+    if (three.renderer) { three.renderer.dispose(); }
   }
 }
 
-function formatTime(s){
-  const m = Math.floor(s/60), sec = Math.floor(s%60);
-  return m+":"+(sec<10?"0":"")+sec;
+function formatTime(s) {
+  const m = Math.floor(s / 60), sec = Math.floor(s % 60);
+  return m + ":" + (sec < 10 ? "0" : "") + sec;
 }
 
 /* ============================================================
@@ -1003,63 +1256,66 @@ function formatTime(s){
    ============================================================ */
 let pendingRoomCode = null;
 
-$("host-btn").addEventListener("click", ()=>{
+$("host-btn").addEventListener("click", () => {
   $("host-btn").disabled = true;
-  Net.onPeerJoin = (peerId, name)=> addLobbyChip(name||"Player");
-  Net.initHost(code=>{
+  Net.onPeerJoin = (peerId, name) => addLobbyChip(name || "Player");
+  Net.initHost(code => {
     $("host-code").textContent = code;
     $("host-code-wrap").classList.remove("hidden");
   });
 });
-function addLobbyChip(name){
+function addLobbyChip(name) {
   const chip = document.createElement("div");
-  chip.className="lobby-chip"; chip.textContent = name;
+  chip.className = "lobby-chip"; chip.textContent = name;
   $("lobby-list").appendChild(chip);
 }
-$("start-match-btn").addEventListener("click", ()=>{
-  const seed = Math.floor(Math.random()*1e9);
+$("start-match-btn").addEventListener("click", () => {
+  const seed = Math.floor(Math.random() * 1e9);
+  const gameMode = $("game-mode").value;
   window._hostSeed = seed;
-  Net.broadcast({t:"start", seed});
-  startCountdownAndPlay();
+  Net.broadcast({ t: "start", seed, gameMode });
+  startCountdownAndPlay(gameMode);
 });
 
-$("join-btn").addEventListener("click", ()=>{
+$("join-btn").addEventListener("click", () => {
   const code = $("join-code").value.trim().toUpperCase();
-  if(!code) return;
+  if (!code) return;
   $("join-status").textContent = "Connecting…";
-  Net.initClient(code, save.name, id=>{
+  Net.initClient(code, save.name, id => {
     $("join-status").textContent = "Connected! Waiting for host to start…";
     // active before the Game object exists, so we can hear the host's "start" signal
-    Net.onMessage = (from, data)=>{ if(data.t==="start"){ window._joinSeed = data.seed; startCountdownAndPlay(); } };
-  }, err=>{
+    Net.onMessage = (from, data) => { if (data.t === "start") { window._joinSeed = data.seed; window._joinMode = data.gameMode; startCountdownAndPlay(data.gameMode); } };
+  }, err => {
     $("join-status").textContent = "Couldn't connect — check the code.";
   });
 });
 
-$("solo-btn").addEventListener("click", ()=>{
-  startMatch("solo", { botCount: parseInt($("bot-count").value,10) });
+$("solo-btn").addEventListener("click", () => {
+  startMatch("solo", { botCount: parseInt($("bot-count").value, 10), gameMode: $("game-mode").value });
 });
 
-function startCountdownAndPlay(){
-  if(Net.isHost) startMatch("host", { botCount: 0 });
-  else startMatch("client", {});
+function startCountdownAndPlay(gameMode = $("game-mode").value) {
+  if (Net.isHost) startMatch("host", { botCount: 0, gameMode });
+  else startMatch("client", { gameMode });
 }
 
-function startMatch(mode, opts){
+function startMatch(mode, opts) {
   menuScreen.classList.add("hidden");
   gameScreen.classList.remove("hidden");
+  gameScreen.classList.remove("match-ended");
   $("banner").classList.add("hidden");
-  $("killfeed").innerHTML="";
-  const seed = mode==="client" ? (window._joinSeed||Math.floor(Math.random()*1e9))
-             : mode==="host" ? (window._hostSeed||Math.floor(Math.random()*1e9))
-             : Math.floor(Math.random()*1e9);
-  game = new Game({mode, myId: Net.myId || "solo-"+Math.random().toString(36).slice(2), seed, botCount: opts.botCount||0});
+  $("killfeed").innerHTML = "";
+  const seed = mode === "client" ? (window._joinSeed || Math.floor(Math.random() * 1e9))
+    : mode === "host" ? (window._hostSeed || Math.floor(Math.random() * 1e9))
+      : Math.floor(Math.random() * 1e9);
+  game = new Game({ mode, myId: Net.myId || "solo-" + Math.random().toString(36).slice(2), seed, botCount: opts.botCount || 0, gameMode: opts.gameMode || "battle" });
   game.started = true;
-  if(mode!=="client") game.timeLeft = game.matchLen;
-  $("arena-code-badge").textContent = Net.isHost ? ("ROOM "+($("host-code").textContent)) : (mode==="client" ? "JOINED MATCH" : "SOLO PRACTICE");
+  if (mode !== "client") game.timeLeft = game.matchLen;
+  $("arena-code-badge").querySelector("strong").textContent = `${game.modeLabel} / ${Net.isHost ? "ROOM " + $("host-code").textContent : (mode === "client" ? "ONLINE" : "SOLO")}`;
 }
 
-function returnToMenu(){
+function returnToMenu() {
+  gameScreen.classList.remove("match-ended");
   gameScreen.classList.add("hidden");
   menuScreen.classList.remove("hidden");
   $("host-code-wrap").classList.add("hidden");
@@ -1070,9 +1326,9 @@ function returnToMenu(){
   refreshStatsStrip();
 }
 
-function leaveMatch(){
-  if(game){ game.dispose(); }
+function leaveMatch() {
+  if (game) { game.dispose(); }
   returnToMenu();
 }
 
-addEventListener("beforeunload", ()=>{ Net.leaveRoom(); });
+addEventListener("beforeunload", () => { Net.leaveRoom(); });
