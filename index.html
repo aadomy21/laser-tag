@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>NEON TAG — Laser Battle Arena</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ============ MAIN MENU ============ -->
+<div id="menu-screen" class="screen">
+  <div class="menu-bg"></div>
+  <div class="menu-card">
+    <div class="logo">
+      <span class="logo-neon">NEON</span><span class="logo-tag">TAG</span>
+      <div class="logo-sub">laser battle arena</div>
+    </div>
+
+    <div class="name-row">
+      <input id="player-name" type="text" maxlength="20" spellcheck="false">
+      <button id="randomize-name" class="icon-btn" title="Randomize name">🎲</button>
+    </div>
+
+    <div class="stats-strip">
+      <div class="stat"><span id="stat-crowns">0</span><label>Crowns</label></div>
+      <div class="stat"><span id="stat-matches">0</span><label>Matches</label></div>
+      <div class="stat"><span id="stat-tags">0</span><label>Tags</label></div>
+    </div>
+
+    <div class="menu-tabs">
+      <button class="tab-btn active" data-tab="host">Host</button>
+      <button class="tab-btn" data-tab="join">Join</button>
+      <button class="tab-btn" data-tab="solo">Solo (Bots)</button>
+    </div>
+
+    <div class="tab-panel" id="tab-host">
+      <p class="hint">Create a room and share the code with friends.</p>
+      <button id="host-btn" class="primary-btn">HOST GAME</button>
+      <div id="host-code-wrap" class="code-wrap hidden">
+        <div class="code-label">Room Code</div>
+        <div id="host-code" class="code-display">——————</div>
+        <div id="lobby-list" class="lobby-list"></div>
+        <button id="start-match-btn" class="primary-btn ghost">START MATCH</button>
+      </div>
+    </div>
+
+    <div class="tab-panel hidden" id="tab-join">
+      <p class="hint">Enter your friend's room code.</p>
+      <input id="join-code" type="text" maxlength="8" placeholder="ROOM CODE" class="code-input">
+      <button id="join-btn" class="primary-btn">JOIN GAME</button>
+      <div id="join-status" class="hint"></div>
+    </div>
+
+    <div class="tab-panel hidden" id="tab-solo">
+      <p class="hint">Practice against Bot players. No friends required.</p>
+      <label class="bot-count-row">Bots: <input id="bot-count" type="range" min="1" max="11" value="7"><span id="bot-count-val">7</span></label>
+      <button id="solo-btn" class="primary-btn">START SOLO MATCH</button>
+    </div>
+
+    <button id="progress-btn" class="text-btn">View Progress</button>
+    <button id="instructions-btn" class="text-btn">How to Play</button>
+  </div>
+</div>
+
+<!-- ============ INSTRUCTIONS ============ -->
+<div id="instructions-screen" class="screen hidden">
+  <div class="menu-card wide">
+    <h2>How to Play</h2>
+    <div class="instructions-body">
+      <p><strong>Move:</strong> WASD or Arrow Keys. <strong>Look:</strong> Mouse. <strong>Jump:</strong> Space. <strong>Shoot:</strong> Click. <strong>Reload:</strong> R. <strong>Leave:</strong> Esc twice.</p>
+      <p>On phone/tablet: left thumb for the joystick, drag right side to look, tap TAG / JUMP buttons.</p>
+      <p>You start with 6 hearts. Getting tagged costs 1 heart. Red hearts on the floor heal you (max 10).</p>
+      <p><strong>Power Cores</strong> glow purple around the arena. Walk up and click the shrinking ring at the right moment — nail it for a bonus heart or the golden Mega Wand (6 shots instead of 5). First player to hit a core wins it.</p>
+      <p>The safe zone shrinks as the match goes on — stay near the center. Last one standing (or most hearts when time's up) gets the crown.</p>
+    </div>
+    <button class="primary-btn" id="close-instructions">Got it</button>
+  </div>
+</div>
+
+<!-- ============ PROGRESS ============ -->
+<div id="progress-screen" class="screen hidden">
+  <div class="menu-card wide">
+    <h2>Your Progress</h2>
+    <div class="progress-grid">
+      <div class="pstat"><span id="p-crowns">0</span><label>Total Crowns</label></div>
+      <div class="pstat"><span id="p-matches">0</span><label>Matches Played</label></div>
+      <div class="pstat"><span id="p-tags">0</span><label>Total Tags</label></div>
+      <div class="pstat"><span id="p-winrate">0%</span><label>Win Rate</label></div>
+    </div>
+    <div class="hint" id="p-history-label">Recent matches</div>
+    <div id="p-history" class="history-list"></div>
+    <button class="primary-btn" id="close-progress">Close</button>
+  </div>
+</div>
+
+<!-- ============ GAME SCREEN ============ -->
+<div id="game-screen" class="screen hidden">
+  <canvas id="game-canvas"></canvas>
+
+  <div id="crosshair"></div>
+
+  <div id="hud-top">
+    <div id="arena-code-badge"></div>
+    <div id="match-timer">2:30</div>
+    <div id="alive-count">🎯 <span id="alive-num">1</span> left</div>
+  </div>
+
+  <div id="hud-bottom-left">
+    <div id="hearts-row"></div>
+    <div id="ammo-row"></div>
+  </div>
+
+  <div id="hud-bottom-right">
+    <button id="reload-hint" class="hint-pill">R to recharge</button>
+  </div>
+
+  <div id="killfeed"></div>
+
+  <div id="power-core-prompt" class="hidden">
+    <div class="core-ring-wrap">
+      <svg viewBox="0 0 120 120" class="core-ring-svg">
+        <circle cx="60" cy="60" r="50" class="core-ring-bg"/>
+        <circle cx="60" cy="60" r="50" class="core-ring-target" id="core-ring-target"/>
+        <circle cx="60" cy="60" r="50" class="core-ring-shrink" id="core-ring-shrink"/>
+      </svg>
+      <div class="core-label">CLICK!</div>
+    </div>
+  </div>
+
+  <div id="banner" class="hidden"></div>
+
+  <!-- Mobile controls -->
+  <div id="mobile-controls" class="hidden">
+    <div id="joystick-zone"><div id="joystick-knob"></div></div>
+    <div id="look-zone"></div>
+    <button id="mobile-tag">TAG</button>
+    <button id="mobile-jump">JUMP</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.157.0/build/three.min.js"></script>
+<script src="game.js"></script>
+</body>
+</html>
