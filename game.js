@@ -1468,6 +1468,7 @@ function formatTime(s) {
    ============================================================ */
 let pendingRoomCode = null;
 let lobbyDiscovery = null;
+let lobbyCache = {}; // code -> full lobby record, so partial patches don't wipe out fields
 
 function setLoading(id, loading) { $(id).classList.toggle("hidden", !loading); }
 function renderLobbyMember(id, name) {
@@ -1488,19 +1489,61 @@ function removeLobbyMember(id) { document.querySelectorAll(`[data-member-id="${i
 function startLobbyDiscovery() {
   if (lobbyDiscovery) return;
   lobbyDiscovery = Firebase.listen("lobbies", (type, path, data) => {
-    const list = $("public-lobbies");
-    if (path === "/") { list.replaceChildren(); if (data) Object.values(data).forEach(renderPublicLobby); return; }
-    if (data) renderPublicLobby(data); else list.querySelector(`[data-lobby-code="${path.slice(1)}"]`)?.remove();
+    if (path === "/") {
+      lobbyCache = {};
+      $("public-lobbies").replaceChildren();
+      if (data) Object.entries(data).forEach(([code, val]) => {
+        lobbyCache[code] = { ...val, code };
+        renderPublicLobby(lobbyCache[code]);
+      });
+      return;
+    }
+    const code = path.slice(1);
+    if (data === null) {
+      delete lobbyCache[code];
+      $("public-lobbies").querySelector(`[data-lobby-code="${code}"]`)?.remove();
+      return;
+    }
+    // merge the patch onto whatever we already know about this lobby, so a
+    // partial write (e.g. just {public, private}) doesn't blow away fields
+    // like code/name/players and spawn a duplicate "undefined" card.
+    lobbyCache[code] = { ...(lobbyCache[code] || {}), ...data, code };
+    renderPublicLobby(lobbyCache[code]);
   });
 }
 function renderPublicLobby(lobby) {
-  if (!lobby || lobby.started) return;
+  if (!lobby || !lobby.code) return;
   const list = $("public-lobbies");
+  // never list/offer-join your own lobby
+  if (Net.isHost && lobby.hostId === Net.myId) {
+    list.querySelector(`[data-lobby-code="${lobby.code}"]`)?.remove();
+    return;
+  }
+  if (lobby.started) {
+    list.querySelector(`[data-lobby-code="${lobby.code}"]`)?.remove();
+    return;
+  }
   let card = list.querySelector(`[data-lobby-code="${lobby.code}"]`);
   if (!card) { card = document.createElement("div"); card.className = "lobby-card"; card.dataset.lobbyCode = lobby.code; list.appendChild(card); }
-  card.innerHTML = `<div><strong>${lobby.private ? "🔒 " : ""}${lobby.name || "Open Lobby"}</strong><small>${lobby.players || 1} player${lobby.players === 1 ? "" : "s"}</small></div>`;
-  const join = document.createElement("button"); join.className = "primary-btn"; join.textContent = lobby.private ? "ENTER CODE" : "JOIN";
-  join.onclick = () => { $("join-code").focus(); $("join-status").textContent = lobby.private ? "Enter the host's private 5-character code." : "Joining lobby..."; if (!lobby.private) { $("join-code").value = lobby.code; $("join-btn").click(); } };
+
+  // rebuilt every render from the current privacy flag, so a public lobby
+  // that just went private can never keep a stale "auto-join" handler.
+  const isPrivate = !!lobby.private;
+  card.innerHTML = `<div><strong>${isPrivate ? "🔒 " : ""}${lobby.name || "Open Lobby"}</strong><small>${lobby.players || 1} player${lobby.players === 1 ? "" : "s"}</small></div>`;
+  const join = document.createElement("button");
+  join.className = "primary-btn";
+  join.textContent = isPrivate ? "ENTER CODE" : "JOIN";
+  join.onclick = () => {
+    if (isPrivate) {
+      $("join-code").value = "";
+      $("join-code").focus();
+      $("join-status").textContent = "Enter the host's private 5-character code.";
+    } else {
+      $("join-code").value = lobby.code;
+      $("join-status").textContent = "Joining lobby...";
+      $("join-btn").click();
+    }
+  };
   card.appendChild(join);
 }
 function refreshBanList() {
