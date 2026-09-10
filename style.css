@@ -28,6 +28,45 @@ body {
   user-select: none;
 }
 
+#pause-menu {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 14;
+  width: min(390px, 88vw);
+  padding: 30px;
+  text-align: center;
+  background: rgba(7, 14, 20, .96);
+  border: 1px solid rgba(67, 246, 228, .45);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, .7);
+}
+
+#pause-menu h2 {
+  margin: 8px 0 3px;
+  color: var(--text);
+  font-size: 38px;
+}
+
+#pause-menu p {
+  margin-bottom: 20px;
+  color: var(--text-dim);
+}
+
+#game-screen.spectating #hud-top {
+  opacity: .6;
+}
+
+#game-screen.paused #hud-top,
+#game-screen.paused #hud-bottom-left,
+#game-screen.paused #hud-bottom-right,
+#game-screen.paused #killfeed,
+#game-screen.paused #crosshair,
+#game-screen.paused #mobile-controls {
+  opacity: .18;
+  pointer-events: none;
+}
+
 .screen {
   position: fixed;
   inset: 0;
@@ -37,6 +76,10 @@ body {
   align-items: center;
   justify-content: center;
   z-index: 10;
+}
+
+#game-screen.match-ended #pause-menu {
+  display: none;
 }
 
 .hidden {
@@ -297,6 +340,126 @@ body {
   font-size: 12px;
   font-family: 'Rajdhani', sans-serif;
   font-weight: 600;
+}
+
+.code-line {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.code-line .code-display {
+  margin-bottom: 0;
+}
+
+.code-line .icon-btn {
+  width: auto;
+  padding: 8px;
+  font: 700 10px 'Rajdhani', sans-serif;
+}
+
+.loading {
+  padding: 12px;
+  color: var(--cyan);
+  font: 700 14px 'Rajdhani', sans-serif;
+  letter-spacing: 2px;
+  text-align: center;
+}
+
+.loading-dots {
+  display: inline-flex;
+  margin-left: 4px;
+}
+
+.loading-dots i {
+  font-style: normal;
+  animation: loading-dot .9s infinite;
+}
+
+.loading-dots i:nth-child(2) {
+  animation-delay: .15s;
+}
+
+.loading-dots i:nth-child(3) {
+  animation-delay: .3s;
+}
+
+@keyframes loading-dot {
+
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: .35;
+  }
+
+  30% {
+    transform: translateY(-5px);
+    opacity: 1;
+  }
+}
+
+.public-lobbies {
+  display: grid;
+  gap: 7px;
+  max-height: 180px;
+  overflow-y: auto;
+  margin-bottom: 12px;
+}
+
+.lobby-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 10px;
+  background: rgba(67, 246, 228, .06);
+  border: 1px solid var(--line);
+}
+
+.lobby-card strong {
+  display: block;
+  color: var(--text);
+  font: 700 14px 'Rajdhani', sans-serif;
+}
+
+.lobby-card small {
+  color: var(--text-dim);
+}
+
+.lobby-card button {
+  width: auto;
+  padding: 7px 12px;
+  font-size: 11px;
+}
+
+.member-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 5px 8px;
+  background: rgba(255, 255, 255, .04);
+  color: var(--text);
+}
+
+.member-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.member-actions button {
+  padding: 4px 6px;
+  font: 700 9px 'Rajdhani', sans-serif;
+  color: var(--magenta);
+  background: transparent;
+  border: 1px solid rgba(255, 83, 125, .35);
+}
+
+.member-actions button:hover {
+  color: var(--text);
+  background: var(--magenta);
 }
 
 .bot-count-row {
@@ -670,6 +833,61 @@ h2 {
   margin-top: 22px;
 }
 
+#death-menu {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 13;
+  width: min(420px, 88vw);
+  padding: 28px;
+  text-align: center;
+  background: rgba(7, 14, 20, .95);
+  border: 1px solid rgba(255, 83, 125, .55);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, .65);
+}
+
+.death-kicker {
+  color: var(--magenta);
+  font: 700 11px 'Rajdhani', sans-serif;
+  letter-spacing: 3px;
+}
+
+#death-menu h2 {
+  margin: 8px 0 4px;
+  color: var(--text);
+  font-size: 34px;
+}
+
+#death-subtitle {
+  color: var(--text-dim);
+  margin-bottom: 20px;
+}
+
+.death-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.death-actions .text-btn {
+  width: 100%;
+}
+
+#death-watch {
+  border-color: rgba(67, 246, 228, .55);
+  color: var(--cyan);
+}
+
+#game-screen.spectating #crosshair,
+#game-screen.spectating #hud-bottom-left,
+#game-screen.spectating #hud-bottom-right {
+  opacity: .35;
+}
+
+#game-screen.spectating #mobile-controls {
+  display: none;
+}
+
 #game-screen.match-ended #hud-top,
 #game-screen.match-ended #hud-bottom-left,
 #game-screen.match-ended #hud-bottom-right,
@@ -677,6 +895,10 @@ h2 {
 #game-screen.match-ended #power-core-prompt,
 #game-screen.match-ended #mobile-controls,
 #game-screen.match-ended #crosshair {
+  display: none;
+}
+
+#game-screen.match-ended #death-menu {
   display: none;
 }
 

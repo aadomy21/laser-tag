@@ -95,13 +95,18 @@ $("bot-count").addEventListener("input", e => $("bot-count-val").textContent = e
    key required, as long as the security rules below are applied.
    ============================================================ */
 const FIREBASE_DB_URL = "https://lasertag-569fa-default-rtdb.firebaseio.com";
+function firebaseFetch(url, options = {}) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 6000);
+  return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timeout));
+}
 
 const Firebase = {
-  put(path, data) { return fetch(`${FIREBASE_DB_URL}/${path}.json`, { method: "PUT", body: JSON.stringify(data) }).catch(() => { }); },
-  patch(path, data) { return fetch(`${FIREBASE_DB_URL}/${path}.json`, { method: "PATCH", body: JSON.stringify(data) }).catch(() => { }); },
-  post(path, data) { return fetch(`${FIREBASE_DB_URL}/${path}.json`, { method: "POST", body: JSON.stringify(data) }).then(r => r.json()).catch(() => { }); },
-  get(path) { return fetch(`${FIREBASE_DB_URL}/${path}.json`).then(r => r.json()).catch(() => null); },
-  remove(path) { return fetch(`${FIREBASE_DB_URL}/${path}.json`, { method: "DELETE" }).catch(() => { }); },
+  put(path, data) { return firebaseFetch(`${FIREBASE_DB_URL}/${path}.json`, { method: "PUT", body: JSON.stringify(data) }).catch(() => { }); },
+  patch(path, data) { return firebaseFetch(`${FIREBASE_DB_URL}/${path}.json`, { method: "PATCH", body: JSON.stringify(data) }).catch(() => { }); },
+  post(path, data) { return firebaseFetch(`${FIREBASE_DB_URL}/${path}.json`, { method: "POST", body: JSON.stringify(data) }).then(r => r.json()).catch(() => { }); },
+  get(path) { return firebaseFetch(`${FIREBASE_DB_URL}/${path}.json`).then(r => r.json()).catch(() => null); },
+  remove(path) { return firebaseFetch(`${FIREBASE_DB_URL}/${path}.json`, { method: "DELETE" }).catch(() => { }); },
   listen(path, onEvent) {
     const es = new EventSource(`${FIREBASE_DB_URL}/${path}.json`);
     const handle = type => e => {
@@ -116,32 +121,57 @@ const Firebase = {
 
 const Net = {
   isHost: false, myId: null, roomCode: null, sessionStart: 0,
-  playersEs: null, eventsEs: null, knownPlayerIds: null,
+  playersEs: null, eventsEs: null, lobbyEs: null, knownPlayerIds: null, visibility: "public",
+  peerDevices: null, // sessionId -> deviceId, so bans survive a reload/rejoin
   onMessage: null, // callback(fromId, data)
   onPeerJoin: null, onPeerLeave: null,
 
-  initHost(cb) {
+  // Host creation used to fire 3 Firebase writes back-to-back (each a full
+  // round trip), which is why "creating room" felt slow. They touch
+  // independent paths, so fire them together instead.
+  initHost(options, cb) {
+    if (typeof options === "function") { cb = options; options = {}; }
     this.isHost = true;
     this.myId = "p" + Math.random().toString(36).slice(2, 10);
     this.roomCode = genRoomCode();
     this.sessionStart = Date.now();
+    this.visibility = options.visibility || "public";
     this.knownPlayerIds = new Set();
-    Firebase.put(`rooms/${this.roomCode}/meta`, { hostId: this.myId, createdAt: this.sessionStart, started: false })
-      .then(() => { this._startListening(); cb(this.roomCode); });
+    this.peerDevices = {};
+    const deviceId = getDeviceId();
+    const meta = { hostId: this.myId, createdAt: this.sessionStart, started: false, public: this.visibility === "public", name: save.name, players: 1 };
+    Promise.all([
+      Firebase.put(`rooms/${this.roomCode}/meta`, meta),
+      Firebase.put(`lobbies/${this.roomCode}`, { ...meta, private: this.visibility === "private", code: this.roomCode }),
+      Firebase.put(`rooms/${this.roomCode}/players/${this.myId}`, { name: save.name, x: 0, y: 1.6, z: 0, ry: 0, hp: 6, alive: true, hasMega: false, device: deviceId })
+    ]).then(() => { this._startListening(); cb(this.roomCode); });
   },
 
+  // Same idea: the meta check and the ban check don't depend on each other,
+  // so fetch both at once instead of one-after-another.
   initClient(roomCode, myName, cb, errCb) {
     this.isHost = false;
     this.myId = "p" + Math.random().toString(36).slice(2, 10);
     this.roomCode = roomCode;
     this.sessionStart = Date.now();
     this.knownPlayerIds = new Set();
-    Firebase.get(`rooms/${roomCode}/meta`).then(meta => {
-      if (!meta) { errCb && errCb(new Error("Room not found")); return; }
+    this.peerDevices = {};
+    const deviceId = getDeviceId();
+    Promise.all([
+      Firebase.get(`rooms/${roomCode}/meta`),
+      Firebase.get(`rooms/${roomCode}/bans/${deviceId}`)
+    ]).then(([meta, banned]) => {
+      if (!meta || meta.started) { errCb && errCb(new Error("Room is unavailable")); return; }
+      if (banned) { errCb && errCb(new Error("You are banned")); return; }
       this._startListening();
       // lobby presence write so the host sees this player in the room list
-      Firebase.put(`rooms/${roomCode}/players/${this.myId}`, { name: myName, x: 0, y: 1.6, z: 0, ry: 0, hp: 6, alive: true, hasMega: false })
-        .then(() => cb(this.myId));
+      Firebase.put(`rooms/${roomCode}/players/${this.myId}`, { name: myName, x: 0, y: 1.6, z: 0, ry: 0, hp: 6, alive: true, hasMega: false, device: deviceId })
+        .then(() => {
+          const nextCount = (meta.players || 1) + 1;
+          Firebase.patch(`rooms/${roomCode}/meta`, { players: nextCount });
+          Firebase.patch(`lobbies/${roomCode}`, { players: nextCount });
+          cb(this.myId);
+        });
     }).catch(e => errCb && errCb(e));
   },
 
@@ -152,6 +182,7 @@ const Net = {
         if (!data) return;
         for (const id in data) {
           if (id === this.myId) continue;
+          if (data[id].device) this.peerDevices[id] = data[id].device;
           const isNew = !this.knownPlayerIds.has(id);
           this.knownPlayerIds.add(id);
           if (isNew && this.onPeerJoin) this.onPeerJoin(id, data[id].name);
@@ -162,8 +193,10 @@ const Net = {
         if (id === this.myId) return;
         if (data === null) {
           if (this.knownPlayerIds.has(id)) { this.knownPlayerIds.delete(id); if (this.onPeerLeave) this.onPeerLeave(id); }
+          delete this.peerDevices[id];
           return;
         }
+        if (data.device) this.peerDevices[id] = data.device;
         const isNew = !this.knownPlayerIds.has(id);
         this.knownPlayerIds.add(id);
         if (isNew && this.onPeerJoin) this.onPeerJoin(id, data.name);
@@ -182,6 +215,7 @@ const Net = {
   _handleEvent(ev) {
     if (!ev || ev._from === this.myId) return;
     if (ev._to && ev._to !== this.myId) return;
+    if (ev.t === "kicked" || ev.t === "banned") { this.onMessage && this.onMessage(ev._from, ev); return; }
     if (this.onMessage) this.onMessage(ev._from, ev);
   },
 
@@ -205,9 +239,41 @@ const Net = {
   leaveRoom() {
     if (this.playersEs) { this.playersEs.close(); this.playersEs = null; }
     if (this.eventsEs) { this.eventsEs.close(); this.eventsEs = null; }
+    if (this.lobbyEs) { this.lobbyEs.close(); this.lobbyEs = null; }
     if (this.roomCode && this.myId) Firebase.remove(`rooms/${this.roomCode}/players/${this.myId}`);
-    if (this.isHost && this.roomCode) Firebase.remove(`rooms/${this.roomCode}`);
-    this.roomCode = null; this.isHost = false;
+    if (this.isHost && this.roomCode) {
+      Firebase.remove(`rooms/${this.roomCode}`); Firebase.remove(`lobbies/${this.roomCode}`);
+    } else if (this.roomCode) {
+      // best-effort: keep the public lobby browser's player count accurate
+      const room = this.roomCode;
+      Firebase.get(`rooms/${room}/meta`).then(meta => {
+        if (!meta) return;
+        const nextCount = Math.max(1, (meta.players || 2) - 1);
+        Firebase.patch(`rooms/${room}/meta`, { players: nextCount });
+        Firebase.patch(`lobbies/${room}`, { players: nextCount });
+      });
+    }
+    this.roomCode = null; this.isHost = false; this.peerDevices = {};
+  },
+  setLobbyVisibility(visibility) {
+    this.visibility = visibility;
+    if (!this.roomCode || !this.isHost) return;
+    const publicLobby = visibility === "public";
+    Firebase.patch(`rooms/${this.roomCode}/meta`, { public: publicLobby });
+    Firebase.patch(`lobbies/${this.roomCode}`, { public: publicLobby, private: !publicLobby });
+  },
+  moderate(id, action) {
+    if (!this.roomCode || !this.isHost || id === this.myId) return;
+    if (action === "banned") {
+      // ban by device, not session id — a kicked/banned player gets a fresh
+      // random session id on reload, so banning the live id alone would let
+      // them just rejoin. Fall back to the id itself if we never heard a
+      // device id from them (e.g. banned before their first state update).
+      const device = (this.peerDevices && this.peerDevices[id]) || id;
+      Firebase.put(`rooms/${this.roomCode}/bans/${device}`, true);
+    }
+    this.sendTo(id, { t: action });
+    if (action === "banned") setTimeout(refreshBanList, 0);
   }
 };
 function genRoomCode() {
@@ -255,6 +321,14 @@ function makePlayerMesh(name) {
   const shoulderGeo = new THREE.SphereGeometry(0.16, 8, 6);
   const shoulderMat = new THREE.MeshStandardMaterial({ color: 0x203446, emissive: bodyColor, emissiveIntensity: 0.3 });
   [-1, 1].forEach(side => { const shoulder = new THREE.Mesh(shoulderGeo, shoulderMat); shoulder.position.set(side * 0.39, 1.08, 0); group.add(shoulder); });
+  const limbMat = new THREE.MeshStandardMaterial({ color: 0x263342, emissive: bodyColor, emissiveIntensity: 0.12, metalness: 0.35, roughness: 0.4 });
+  const armGeo = new THREE.CapsuleGeometry(0.085, 0.38, 3, 6);
+  const legGeo = new THREE.CapsuleGeometry(0.105, 0.48, 3, 6);
+  const leftArm = new THREE.Mesh(armGeo, limbMat); leftArm.position.set(-0.38, 0.78, 0); group.add(leftArm);
+  const rightArm = new THREE.Mesh(armGeo, limbMat); rightArm.position.set(0.38, 0.78, 0); group.add(rightArm);
+  const leftLeg = new THREE.Mesh(legGeo, limbMat); leftLeg.position.set(-0.16, 0.35, 0); group.add(leftLeg);
+  const rightLeg = new THREE.Mesh(legGeo, limbMat); rightLeg.position.set(0.16, 0.35, 0); group.add(rightLeg);
+  group.userData.animation = { leftArm, rightArm, leftLeg, rightLeg, phase: Math.random() * Math.PI * 2 };
 
   // name tag via sprite
   const canvas = document.createElement("canvas");
@@ -366,14 +440,21 @@ class Game {
     this.killfeedEl = $("killfeed");
     this.lastSyncSent = 0;
     this.lastTimerSent = 0;
+    this.lastBotSync = 0;
     this.lastAliveCount = -1;
     this.lastScore = -1;
     this.score = 0;
     this.deaths = 0;
+    this.spectating = false;
+    this.spectatorTarget = null;
+    this.spectatorEndsAt = 0;
+    this.deathMenuShown = false;
+    this.paused = false;
     this.activeCore = null; // {id, progress, deadline}
     this.setupScene();
     this.setupLocalPlayer();
     this.setupControls();
+    this.setupPauseMenu();
     this.setupPickupsAndCores();
 
     if (this.mode === "host") this.spawnBots(this.botCount);
@@ -499,6 +580,7 @@ class Game {
     };
     const spawn = this.findSafeSpawn(0);
     this.player.x = spawn.x; this.player.z = spawn.z;
+    this.player.y = this.getGroundHeight(this.player.x, this.player.z) + 1.6;
     three.camera.position.set(this.player.x, this.player.y, this.player.z);
 
     // layered first-person blaster attached to the camera
@@ -565,19 +647,13 @@ class Game {
           this.player.rx = Math.max(-1.2, Math.min(1.2, this.player.rx));
         }
       });
-      let escCount = 0, escTimer = null;
       listen(document, "keydown", e => {
         if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
         this.keys[e.code] = true;
         if (["KeyW", "KeyA", "KeyS", "KeyD", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(e.code)) e.preventDefault();
         if (e.code === "KeyR") this.reload();
         if (e.code === "KeyE") this.tryOpenNearestCore();
-        if (e.code === "Escape") {
-          escCount++;
-          clearTimeout(escTimer);
-          escTimer = setTimeout(() => escCount = 0, 800);
-          if (escCount >= 2) leaveMatch();
-        }
+        if (e.code === "Escape") { e.preventDefault(); this.togglePause(); }
       });
       listen(document, "keyup", e => this.keys[e.code] = false);
       listen(window, "blur", () => {
@@ -585,11 +661,39 @@ class Game {
         this.player.moveVelocity.x = 0;
         this.player.moveVelocity.z = 0;
       });
-      this.controlCleanups.push(() => clearTimeout(escTimer));
     } else {
       $("mobile-controls").classList.remove("hidden");
       this.setupTouchControls(listen);
     }
+  }
+
+  togglePause(force) {
+    // Blocked any time you're dead/spectating (any mode) or the death menu
+    // is up — Escape used to only get blocked in Battle Royale, so dying in
+    // Kill Run and hitting Escape would pop the pause menu on top of (or
+    // instead of) the death menu. The pause menu has no respawn option,
+    // only RESTART MATCH / MAIN MENU, which is what made it feel like dying
+    // "forced" a restart.
+    if (this.ended || this.spectating || this.deathMenuShown) return;
+    this.paused = force === undefined ? !this.paused : force;
+    gameScreen.classList.toggle("paused", this.paused);
+    $("pause-menu").classList.toggle("hidden", !this.paused);
+    if (this.paused) {
+      this.keys = {};
+      this.player.moveVelocity.x = 0; this.player.moveVelocity.z = 0;
+      if (document.pointerLockElement) document.exitPointerLock();
+    }
+  }
+
+  setupPauseMenu() {
+    $("resume-match").onclick = () => this.togglePause(false);
+    $("pause-restart").onclick = () => {
+      const mode = this.mode, bots = this.botCount, gameMode = this.gameMode;
+      this.dispose(); returnToMenu();
+      if (mode === "solo") startMatch("solo", { botCount: bots, gameMode });
+    };
+    $("pause-menu-btn").onclick = () => { this.dispose(); returnToMenu(); };
+    $("pause-settings").onclick = () => instructionsScreen.classList.remove("hidden");
   }
 
   setupTouchControls(listen) {
@@ -646,7 +750,6 @@ class Game {
     if (this.player.reloading || this.player.ammo >= this.player.maxAmmo || !this.player.alive) return;
     this.player.reloading = true;
     this.player.reloadDoneAt = performance.now() + 850;
-    this.addKillfeed("Recharging...");
   }
 
   /* ---------------- shooting ---------------- */
@@ -737,16 +840,16 @@ class Game {
   applyTagToBot(botId, fromId, fromName, amount) {
     const b = this.bots[botId]; if (!b || !b.alive) return;
     b.hp -= amount;
-    this.addKillfeed(`${fromName} tagged ${b.name}`);
     if (b.hp <= 0) {
       b.hp = 0; b.alive = false;
       if (fromId === this.myId) this.addScore(1);
-      this.addKillfeed(`${b.name} is out!`);
+      else if (this.bots[fromId]) this.bots[fromId].score = (this.bots[fromId].score || 0) + 1;
+      this.addKillfeed(`${fromName} eliminated ${b.name}`);
       b.respawnAt = this.gameMode === "score" ? performance.now() + 1800 : 0;
     }
     const rp = this.remotePlayers[botId];
     if (rp) rp.applyState({ x: b.x, y: 1.6, z: b.z, ry: b.ry, hp: b.hp, alive: b.alive, hasMega: false });
-    if (this.mode === "host") Net.broadcast({ t: "botstate", id: botId, x: b.x, y: 1.6, z: b.z, ry: b.ry, hp: b.hp, alive: b.alive, name: b.name });
+    if (this.mode === "host") Net.broadcast({ t: "botstate", id: botId, x: b.x, y: 1.6, z: b.z, ry: b.ry, hp: b.hp, alive: b.alive, score: b.score || 0, name: b.name });
     if (this.gameMode === "battle") this.checkWinCondition();
   }
 
@@ -780,7 +883,6 @@ class Game {
       if (this.mode === "host") this.handleNetMessage(this.myId, { t: "core", id: ac.id, by: this.myId, byName: this.myName });
       else this.grantCoreReward(true); // optimistic local reward on client while host confirms
     } else {
-      this.addKillfeed("Missed the core!");
     }
   }
   closeCore() {
@@ -792,8 +894,8 @@ class Game {
   grantCoreReward(isMega) {
     if (Math.random() < 0.35 || isMega === true && false) { } // placeholder no-op to keep structure simple
     const giveMega = Math.random() < 0.3;
-    if (giveMega) { this.player.hasMega = true; this.player.maxAmmo = 6; this.player.ammo = Math.min(6, this.player.ammo + 1); this.addKillfeed("You earned the MEGA WAND! ✨"); }
-    else { this.player.hp = Math.min(10, this.player.hp + 1); this.addKillfeed("Power Core: +1 heart!"); }
+    if (giveMega) { this.player.hasMega = true; this.player.maxAmmo = 6; this.player.ammo = Math.min(6, this.player.ammo + 1); }
+    else { this.player.hp = Math.min(10, this.player.hp + 1); }
     this.updateHeartsHUD(); this.updateAmmoHUD();
   }
 
@@ -830,6 +932,8 @@ class Game {
   }
   updateBots(dt) {
     if (this.mode === "client") return; // only host/solo simulate bots
+    const syncBots = this.mode === "host" && performance.now() - this.lastBotSync > 120;
+    if (syncBots) this.lastBotSync = performance.now();
     for (const id in this.bots) {
       const b = this.bots[id];
       if (!b.alive) {
@@ -870,6 +974,7 @@ class Game {
       }
       const rp = this.remotePlayers[id];
       rp.applyState({ x: b.x, y: 1.6, z: b.z, ry: b.ry, hp: b.hp, alive: b.alive, hasMega: false });
+      if (syncBots) Net.broadcast({ t: "botstate", id, x: b.x, y: 1.6, z: b.z, ry: b.ry, hp: b.hp, alive: b.alive, hasMega: false, score: b.score || 0, name: b.name });
     }
   }
 
@@ -900,25 +1005,85 @@ class Game {
       return;
     }
     const message = { t: "tag", from: bot.id, fromName: bot.name, to: target.id, amount: 1 };
-    this.handleNetMessage(bot.id, message);
+    if (target.id.startsWith("bot_")) {
+      if (this.mode === "host" || this.mode === "solo") this.applyTagToBot(target.id, bot.id, bot.name, 1);
+      if (this.mode === "host") Net.broadcast(message);
+    } else {
+      this.handleNetMessage(bot.id, message);
+    }
   }
 
   applyTagToLocal(amount, fromName, fromId) {
     if (!this.player.alive) return;
     this.player.hp -= amount;
-    this.addKillfeed(`${fromName} tagged you!`);
     this.updateHeartsHUD();
     if (this.player.hp <= 0) {
       this.player.hp = 0; this.player.alive = false;
-      this.addKillfeed("You're out!");
+      this.addKillfeed(`${fromName} eliminated you`);
       this.deaths++;
       if (fromId && fromId !== this.myId && this.gameMode === "score") {
         const attacker = this.remotePlayers[fromId];
         if (attacker) attacker.score = (attacker.score || 0) + 1;
       }
-      if (this.gameMode === "score") this.player.respawnAt = performance.now() + 1800;
-      else this.checkWinCondition();
+      this.enterSpectator(fromId, fromName);
+      if (this.gameMode === "battle") this.checkWinCondition();
     }
+  }
+
+  enterSpectator(killerId, killerName) {
+    this.spectating = true;
+    gameScreen.classList.add("spectating");
+    // Release the mouse the instant you die — otherwise the pointer stays
+    // locked to the canvas and the death menu's buttons (RESPAWN, WATCH
+    // MATCH, etc.) can't actually be clicked, which is what pushed people
+    // toward Escape (see togglePause) as the only way to do anything.
+    if (document.pointerLockElement) document.exitPointerLock();
+    if (this.gunGrp) this.gunGrp.visible = false;
+    this.spectatorTarget = killerId && this.remotePlayers[killerId] ? killerId : null;
+    if (!this.spectatorTarget) {
+      let nearestId = null, nearestDistance = Infinity;
+      for (const id in this.remotePlayers) {
+        const candidate = this.remotePlayers[id];
+        if (!candidate.alive) continue;
+        const distance = Math.hypot(candidate.x - this.player.x, candidate.z - this.player.z);
+        if (distance < nearestDistance) { nearestDistance = distance; nearestId = id; }
+      }
+      this.spectatorTarget = nearestId;
+    }
+    this.spectatorYaw = this.spectatorTarget && this.remotePlayers[this.spectatorTarget]
+      ? this.remotePlayers[this.spectatorTarget].ry : this.player.ry;
+    this.spectatorEndsAt = performance.now() + 2000;
+    $("death-title").textContent = this.gameMode === "battle" ? "You were eliminated" : "You were tagged";
+    $("death-subtitle").textContent = killerName ? `Following ${killerName}...` : "Following the action...";
+    $("death-menu").classList.add("hidden");
+  }
+
+  showDeathMenu() {
+    if (this.deathMenuShown || this.gameMode === "battle") return;
+    this.deathMenuShown = true;
+    $("death-menu").classList.remove("hidden");
+    $("death-subtitle").textContent = "Choose what to do next";
+    $("death-respawn").onclick = () => {
+      this.spectating = false;
+      this.deathMenuShown = false;
+      gameScreen.classList.remove("spectating");
+      $("death-menu").classList.add("hidden");
+      if (this.gunGrp) this.gunGrp.visible = true;
+      this.respawnLocal();
+    };
+    $("death-watch").onclick = () => {
+      this.deathMenuShown = true;
+      $("death-menu").classList.add("hidden");
+      this.spectatorEndsAt = Number.POSITIVE_INFINITY;
+      $("death-subtitle").textContent = "Watching the match...";
+    };
+    $("death-restart").onclick = () => {
+      const mode = this.mode, bots = this.botCount, gameMode = this.gameMode;
+      this.dispose(); returnToMenu();
+      if (mode === "solo") startMatch("solo", { botCount: bots, gameMode });
+    };
+    $("death-menu-btn").onclick = () => { this.dispose(); returnToMenu(); };
+    $("death-settings").onclick = () => instructionsScreen.classList.remove("hidden");
   }
 
   respawnBot(bot) {
@@ -927,15 +1092,15 @@ class Game {
     bot.hp = 6; bot.alive = true; bot.respawnAt = 0;
     const rp = this.remotePlayers[bot.id];
     if (rp) rp.applyState({ x: bot.x, y: 1.6, z: bot.z, ry: bot.ry, hp: bot.hp, alive: true, hasMega: false });
-    if (this.mode === "host") Net.broadcast({ t: "botstate", id: bot.id, x: bot.x, y: 1.6, z: bot.z, ry: bot.ry, hp: bot.hp, alive: true, name: bot.name });
+    if (this.mode === "host") Net.broadcast({ t: "botstate", id: bot.id, x: bot.x, y: 1.6, z: bot.z, ry: bot.ry, hp: bot.hp, alive: true, score: bot.score || 0, name: bot.name });
   }
 
   respawnLocal() {
     const spawn = this.findSafeSpawn(4);
     this.player.x = spawn.x; this.player.z = spawn.z;
+    this.player.y = this.getGroundHeight(this.player.x, this.player.z) + 1.6;
     this.player.hp = 6; this.player.alive = true; this.player.respawnAt = 0;
     this.updateHeartsHUD();
-    this.addKillfeed("Back in the arena!");
   }
 
   findSafeSpawn(minDistance = 0, ignoredBotId = null) {
@@ -970,7 +1135,6 @@ class Game {
         {
           const c = this.cores[data.id]; if (c && c.active) {
             c.active = false; c.mesh.visible = false;
-            this.addKillfeed(`${data.byName} claimed a Power Core!`);
             if (data.by === this.myId) this.grantCoreReward();
             if (this.mode === "host") Net.broadcast(data);
             setTimeout(() => { if (c) { c.active = true; c.mesh.visible = true; } }, 20000);
@@ -1038,13 +1202,20 @@ class Game {
       const nearBack = Math.abs(lx) < 1.5 + 0.4 && Math.abs(lz + 1.5) < 0.15 + 0.4;
       if (nearSide || nearBack) return true;
     }
+    return this.layout.size * 1.19 < Math.hypot(x, z);
+  }
+
+  getGroundHeight(x, z) {
+    let height = 0;
     for (const ramp of this.layout.ramps) {
       const cos = Math.cos(-ramp.ry), sin = Math.sin(-ramp.ry);
       const dx = x - ramp.x, dz = z - ramp.z;
       const lx = dx * cos - dz * sin, lz = dx * sin + dz * cos;
-      if (Math.abs(lx) < 2.0 + 0.4 && Math.abs(lz) < 3.0 + 0.4) return true;
+      if (Math.abs(lx) <= 2 && Math.abs(lz) <= 3) {
+        height = Math.max(height, 1.4 - Math.sin(0.5) * lz + 0.12);
+      }
     }
-    return this.layout.size * 1.19 < Math.hypot(x, z);
+    return height;
   }
 
   /* ---------------- main loop ---------------- */
@@ -1059,12 +1230,16 @@ class Game {
       this.player.reloading = false;
       this.player.ammo = this.player.maxAmmo;
       this.updateAmmoHUD();
-      this.addKillfeed("Blaster charged");
+    }
+
+    if (this.paused) {
+      three.renderer.render(three.scene, three.camera);
+      return;
     }
 
     this.updateLocalMovement(dt);
-    if (this.gameMode === "score" && !this.player.alive && this.player.respawnAt && now >= this.player.respawnAt) this.respawnLocal();
     this.updateBots(dt);
+    this.animateRemotePlayers(now);
     this.checkHeartPickup();
     if (this.activeCore) {
       const ac = this.activeCore;
@@ -1082,9 +1257,10 @@ class Game {
       if (this.gameMode === "battle" && Math.hypot(this.player.x, this.player.z) > this.zoneRadius && this.player.alive) {
         this.player.hp -= dt * 1.2;
         if (this.player.hp <= 0) {
-          this.player.hp = 0; this.player.alive = false; this.addKillfeed("The zone got you!");
-          if (this.gameMode === "score") { this.deaths++; this.player.respawnAt = now + 1800; }
-          else this.checkWinCondition();
+          this.player.hp = 0; this.player.alive = false; this.addKillfeed("The zone eliminated you");
+          this.deaths++;
+          this.enterSpectator(null, "the zone");
+          this.checkWinCondition();
         }
         this.updateHeartsHUD();
       }
@@ -1108,11 +1284,31 @@ class Game {
     // send own state
     if (now - this.lastSyncSent > 120) {
       this.lastSyncSent = now;
-      Net.broadcast({ t: "state", name: this.myName, x: this.player.x, y: this.player.y, z: this.player.z, ry: this.player.ry, hp: this.player.hp, alive: this.player.alive, hasMega: this.player.hasMega, score: this.score });
+      Net.broadcast({ t: "state", name: this.myName, device: getDeviceId(), x: this.player.x, y: this.player.y, z: this.player.z, ry: this.player.ry, hp: this.player.hp, alive: this.player.alive, hasMega: this.player.hasMega, score: this.score });
     }
 
-    three.camera.position.set(this.player.x, this.player.y, this.player.z);
-    three.camera.rotation.set(this.player.rx, this.player.ry, 0, "YXZ");
+    if (this.spectating) {
+      if (!this.spectatorTarget || !this.remotePlayers[this.spectatorTarget]?.alive) {
+        const next = Object.keys(this.remotePlayers).find(id => this.remotePlayers[id].alive);
+        if (next) {
+          this.spectatorTarget = next;
+          this.spectatorYaw = this.remotePlayers[next].ry;
+        }
+      }
+      if (this.spectatorTarget && this.remotePlayers[this.spectatorTarget]) {
+        const target = this.remotePlayers[this.spectatorTarget];
+        const targetEye = new THREE.Vector3(target.x, target.y, target.z);
+        three.camera.position.lerp(targetEye, Math.min(1, dt * 8));
+        let yawDelta = target.ry - this.spectatorYaw;
+        yawDelta = Math.atan2(Math.sin(yawDelta), Math.cos(yawDelta));
+        this.spectatorYaw += yawDelta * Math.min(1, dt * 2.2);
+        three.camera.rotation.set(0, this.spectatorYaw, 0, "YXZ");
+      }
+      if (now >= this.spectatorEndsAt) this.showDeathMenu();
+    } else {
+      three.camera.position.set(this.player.x, this.player.y, this.player.z);
+      three.camera.rotation.set(this.player.rx, this.player.ry, 0, "YXZ");
+    }
 
     three.renderer.render(three.scene, three.camera);
   }
@@ -1123,10 +1319,23 @@ class Game {
     return n;
   }
 
+  animateRemotePlayers(now) {
+    for (const id in this.remotePlayers) {
+      const mesh = this.remotePlayers[id].mesh;
+      const animation = mesh.userData.animation;
+      if (!animation || !mesh.visible) continue;
+      const stride = Math.sin(now * 0.009 + animation.phase) * 0.16;
+      animation.leftArm.rotation.z = stride;
+      animation.rightArm.rotation.z = -stride;
+      animation.leftLeg.rotation.x = stride;
+      animation.rightLeg.rotation.x = -stride;
+      mesh.position.y = this.remotePlayers[id].y - 0.9 + Math.sin(now * 0.012 + animation.phase) * 0.015;
+    }
+  }
+
   addScore(points) {
     if (this.gameMode !== "score") return;
     this.score += points;
-    this.addKillfeed(`+${points} KILL`);
   }
 
   updateLocalMovement(dt) {
@@ -1166,7 +1375,8 @@ class Game {
     // gravity/jump
     this.player.jumpVel -= 16 * dt;
     this.player.y += this.player.jumpVel * dt;
-    if (this.player.y <= 1.6) { this.player.y = 1.6; this.player.jumpVel = 0; this.player.onGround = true; }
+    const groundY = this.getGroundHeight(this.player.x, this.player.z) + 1.6;
+    if (this.player.jumpVel <= 0 && this.player.y <= groundY) { this.player.y = groundY; this.player.jumpVel = 0; this.player.onGround = true; }
   }
 
   checkWinCondition() {
@@ -1230,6 +1440,8 @@ class Game {
 
   dispose() {
     this.disposed = true;
+    gameScreen.classList.remove("spectating");
+    gameScreen.classList.remove("paused");
     if (this.controlCleanups) this.controlCleanups.splice(0).forEach(cleanup => cleanup());
     if (this.resizeHandler) removeEventListener("resize", this.resizeHandler);
     three.scene && three.scene.traverse(object => {
@@ -1255,13 +1467,74 @@ function formatTime(s) {
    FLOW CONTROL — menu buttons -> starting matches
    ============================================================ */
 let pendingRoomCode = null;
+let lobbyDiscovery = null;
+
+function setLoading(id, loading) { $(id).classList.toggle("hidden", !loading); }
+function renderLobbyMember(id, name) {
+  const existing = document.querySelector(`[data-member-id="${id}"]`);
+  if (existing) return;
+  const row = document.createElement("div");
+  row.className = "member-row"; row.dataset.memberId = id;
+  const label = document.createElement("span"); label.textContent = name || "Player"; row.appendChild(label);
+  if (Net.isHost && id !== Net.myId) {
+    const actions = document.createElement("span"); actions.className = "member-actions";
+    ["kicked", "banned"].forEach(action => { const button = document.createElement("button"); button.textContent = action.toUpperCase(); button.onclick = () => Net.moderate(id, action); actions.appendChild(button); });
+    row.appendChild(actions);
+  }
+  $("lobby-list").appendChild(row);
+  $("join-lobby-players").appendChild(row.cloneNode(true));
+}
+function removeLobbyMember(id) { document.querySelectorAll(`[data-member-id="${id}"]`).forEach(row => row.remove()); }
+function startLobbyDiscovery() {
+  if (lobbyDiscovery) return;
+  lobbyDiscovery = Firebase.listen("lobbies", (type, path, data) => {
+    const list = $("public-lobbies");
+    if (path === "/") { list.replaceChildren(); if (data) Object.values(data).forEach(renderPublicLobby); return; }
+    if (data) renderPublicLobby(data); else list.querySelector(`[data-lobby-code="${path.slice(1)}"]`)?.remove();
+  });
+}
+function renderPublicLobby(lobby) {
+  if (!lobby || lobby.started) return;
+  const list = $("public-lobbies");
+  let card = list.querySelector(`[data-lobby-code="${lobby.code}"]`);
+  if (!card) { card = document.createElement("div"); card.className = "lobby-card"; card.dataset.lobbyCode = lobby.code; list.appendChild(card); }
+  card.innerHTML = `<div><strong>${lobby.private ? "🔒 " : ""}${lobby.name || "Open Lobby"}</strong><small>${lobby.players || 1} player${lobby.players === 1 ? "" : "s"}</small></div>`;
+  const join = document.createElement("button"); join.className = "primary-btn"; join.textContent = lobby.private ? "ENTER CODE" : "JOIN";
+  join.onclick = () => { $("join-code").focus(); $("join-status").textContent = lobby.private ? "Enter the host's private 5-character code." : "Joining lobby..."; if (!lobby.private) { $("join-code").value = lobby.code; $("join-btn").click(); } };
+  card.appendChild(join);
+}
+function refreshBanList() {
+  if (!Net.isHost || !Net.roomCode) return;
+  Firebase.get(`rooms/${Net.roomCode}/bans`).then(bans => {
+    const list = $("banned-list"); list.replaceChildren();
+    if (!bans) return;
+    Object.keys(bans).forEach(id => {
+      const row = document.createElement("div"); row.className = "member-row";
+      row.innerHTML = `<span>Banned player ${id.slice(-5)}</span>`;
+      const button = document.createElement("button"); button.className = "text-btn"; button.textContent = "UNBAN";
+      button.onclick = () => Firebase.remove(`rooms/${Net.roomCode}/bans/${id}`).then(refreshBanList);
+      row.appendChild(button); list.appendChild(row);
+    });
+  });
+}
+
+document.querySelector('[data-tab="join"]').addEventListener("click", startLobbyDiscovery);
 
 $("host-btn").addEventListener("click", () => {
   $("host-btn").disabled = true;
-  Net.onPeerJoin = (peerId, name) => addLobbyChip(name || "Player");
-  Net.initHost(code => {
+  setLoading("host-loading", true);
+  const visibility = $("lobby-visibility").value;
+  Net.onPeerJoin = (peerId, name) => renderLobbyMember(peerId, name);
+  Net.onPeerLeave = peerId => removeLobbyMember(peerId);
+  Net.initHost({ visibility }, code => {
+    setLoading("host-loading", false);
+    $("host-hint").textContent = "Lobby ready. Share the code or wait for players.";
     $("host-code").textContent = code;
     $("host-code-wrap").classList.remove("hidden");
+    $("host-btn").classList.add("hidden");
+    $("lobby-list").replaceChildren();
+    renderLobbyMember(Net.myId, save.name);
+    refreshBanList();
   });
 });
 function addLobbyChip(name) {
@@ -1273,6 +1546,8 @@ $("start-match-btn").addEventListener("click", () => {
   const seed = Math.floor(Math.random() * 1e9);
   const gameMode = $("game-mode").value;
   window._hostSeed = seed;
+  Firebase.patch(`rooms/${Net.roomCode}/meta`, { started: true });
+  Firebase.remove(`lobbies/${Net.roomCode}`);
   Net.broadcast({ t: "start", seed, gameMode });
   startCountdownAndPlay(gameMode);
 });
@@ -1281,14 +1556,32 @@ $("join-btn").addEventListener("click", () => {
   const code = $("join-code").value.trim().toUpperCase();
   if (!code) return;
   $("join-status").textContent = "Connecting…";
+  setLoading("join-loading", true);
+  Net.onPeerJoin = (peerId, name) => renderLobbyMember(peerId, name);
+  Net.onPeerLeave = peerId => removeLobbyMember(peerId);
   Net.initClient(code, save.name, id => {
+    setLoading("join-loading", false);
     $("join-status").textContent = "Connected! Waiting for host to start…";
+    renderLobbyMember(Net.myId, save.name);
     // active before the Game object exists, so we can hear the host's "start" signal
-    Net.onMessage = (from, data) => { if (data.t === "start") { window._joinSeed = data.seed; window._joinMode = data.gameMode; startCountdownAndPlay(data.gameMode); } };
+    Net.onMessage = (from, data) => {
+      if (data.t === "start") { window._joinSeed = data.seed; window._joinMode = data.gameMode; startCountdownAndPlay(data.gameMode); }
+      if (data.t === "kicked" || data.t === "banned") { $("join-status").textContent = data.t === "banned" ? "You are banned from this lobby." : "You were removed from this lobby."; returnToMenu(); }
+    };
   }, err => {
+    setLoading("join-loading", false);
     $("join-status").textContent = "Couldn't connect — check the code.";
   });
 });
+
+$("lobby-visibility").addEventListener("change", e => Net.setLobbyVisibility(e.target.value));
+$("hide-room-code").addEventListener("click", e => {
+  const hidden = e.currentTarget.dataset.hidden === "true";
+  e.currentTarget.dataset.hidden = String(!hidden);
+  e.currentTarget.textContent = hidden ? "HIDE" : "SHOW";
+  $("host-code").style.visibility = hidden ? "visible" : "hidden";
+});
+$("leave-room-btn").addEventListener("click", () => { if (game) game.dispose(); returnToMenu(); });
 
 $("solo-btn").addEventListener("click", () => {
   startMatch("solo", { botCount: parseInt($("bot-count").value, 10), gameMode: $("game-mode").value });
@@ -1303,6 +1596,9 @@ function startMatch(mode, opts) {
   menuScreen.classList.add("hidden");
   gameScreen.classList.remove("hidden");
   gameScreen.classList.remove("match-ended");
+  gameScreen.classList.remove("spectating");
+  gameScreen.classList.remove("paused");
+  $("pause-menu").classList.add("hidden");
   $("banner").classList.add("hidden");
   $("killfeed").innerHTML = "";
   const seed = mode === "client" ? (window._joinSeed || Math.floor(Math.random() * 1e9))
@@ -1316,10 +1612,15 @@ function startMatch(mode, opts) {
 
 function returnToMenu() {
   gameScreen.classList.remove("match-ended");
+  gameScreen.classList.remove("spectating");
+  $("death-menu").classList.add("hidden");
   gameScreen.classList.add("hidden");
   menuScreen.classList.remove("hidden");
   $("host-code-wrap").classList.add("hidden");
+  $("host-btn").classList.remove("hidden");
   $("lobby-list").innerHTML = "";
+  $("join-lobby-players").innerHTML = "";
+  $("banned-list").innerHTML = "";
   $("host-btn").disabled = false;
   $("join-status").textContent = "";
   Net.leaveRoom();

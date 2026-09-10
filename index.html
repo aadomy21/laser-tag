@@ -55,20 +55,39 @@
         </div>
 
         <div class="tab-panel" id="tab-host">
-          <p class="hint">Create a room and share the code with friends.</p>
+          <p class="hint" id="host-hint">Create a room and invite players.</p>
           <button id="host-btn" class="primary-btn">HOST GAME</button>
+          <div id="host-loading" class="loading hidden">Loading<span
+              class="loading-dots"><i>.</i><i>.</i><i>.</i></span></div>
           <div id="host-code-wrap" class="code-wrap hidden">
+            <label class="mode-select-row">LOBBY
+              <select id="lobby-visibility">
+                <option value="public">PUBLIC</option>
+                <option value="private">PRIVATE</option>
+              </select>
+            </label>
             <div class="code-label">Room Code</div>
-            <div id="host-code" class="code-display">——————</div>
+            <div class="code-line">
+              <div id="host-code" class="code-display">——————</div><button id="hide-room-code" class="icon-btn"
+                title="Hide code">HIDE</button>
+            </div>
             <div id="lobby-list" class="lobby-list"></div>
+            <div id="banned-list" class="lobby-list"></div>
             <button id="start-match-btn" class="primary-btn ghost">START MATCH</button>
+            <button id="leave-room-btn" class="text-btn">LEAVE ROOM</button>
           </div>
         </div>
 
         <div class="tab-panel hidden" id="tab-join">
-          <p class="hint">Enter your friend's room code.</p>
+          <p class="hint">Join an open lobby or enter a private code.</p>
+          <div id="public-lobbies" class="public-lobbies">
+            <div class="hint">Scanning public lobbies...</div>
+          </div>
           <input id="join-code" type="text" maxlength="8" placeholder="ROOM CODE" class="code-input">
           <button id="join-btn" class="primary-btn">JOIN GAME</button>
+          <div id="join-loading" class="loading hidden">Loading<span
+              class="loading-dots"><i>.</i><i>.</i><i>.</i></span></div>
+          <div id="join-lobby-players" class="lobby-list"></div>
           <div id="join-status" class="hint"></div>
         </div>
 
@@ -93,12 +112,13 @@
       <h2>How to Play</h2>
       <div class="instructions-body">
         <p><strong>Move:</strong> WASD or Arrow Keys. <strong>Look:</strong> Mouse. <strong>Jump:</strong> Space.
-          <strong>Shoot:</strong> Click. <strong>Reload:</strong> R. <strong>Leave:</strong> Esc twice.
+          <strong>Shoot:</strong> Click. <strong>Reload:</strong> R. <strong>Pause:</strong> Esc.
         </p>
         <p>On phone/tablet: left thumb for the joystick, drag right side to look, tap TAG / JUMP buttons.</p>
         <p>You start with 6 hearts. Getting tagged costs 1 heart. Red hearts on the floor heal you (max 10).</p>
         <p><strong>Power Cores</strong> glow purple around the arena. Walk up and click the shrinking ring at the right
-          moment — nail it for a bonus heart or the golden Mega Wand (6 shots instead of 5). First player to hit a core
+          moment — press E to interact, then nail it for a bonus heart or the golden Mega Wand (6 shots instead of 5).
+          First player to hit a core
           wins it.</p>
         <p><strong>Kill Run:</strong> eliminations count as kills, and you respawn after a short delay. Most kills when
           the clock hits zero wins.</p>
@@ -167,6 +187,31 @@
     </div>
 
     <div id="banner" class="hidden"></div>
+
+    <div id="death-menu" class="hidden">
+      <div class="death-kicker">ELIMINATED</div>
+      <h2 id="death-title">You were tagged</h2>
+      <p id="death-subtitle">Following your eliminator...</p>
+      <div class="death-actions">
+        <button id="death-respawn" class="primary-btn">RESPAWN</button>
+        <button id="death-watch" class="primary-btn ghost">WATCH MATCH</button>
+        <button id="death-restart" class="primary-btn ghost">RESTART MATCH</button>
+        <button id="death-menu-btn" class="primary-btn ghost">MAIN MENU</button>
+        <button id="death-settings" class="text-btn">SETTINGS</button>
+      </div>
+    </div>
+
+    <div id="pause-menu" class="hidden">
+      <div class="death-kicker">MATCH PAUSED</div>
+      <h2>NEON TAG</h2>
+      <p>Take a breath. The arena is waiting.</p>
+      <div class="death-actions">
+        <button id="resume-match" class="primary-btn">RESUME</button>
+        <button id="pause-restart" class="primary-btn ghost">RESTART MATCH</button>
+        <button id="pause-menu-btn" class="primary-btn ghost">MAIN MENU</button>
+        <button id="pause-settings" class="text-btn">SETTINGS</button>
+      </div>
+    </div>
 
     <!-- Mobile controls -->
     <div id="mobile-controls" class="hidden">
